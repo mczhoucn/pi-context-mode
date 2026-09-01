@@ -718,6 +718,52 @@ describe("routePreToolUse", () => {
     });
   });
 
+  describe("Pi context-mode MCP execute security", () => {
+    let projectDir: string;
+
+    beforeAll(async () => {
+      await initSecurity(resolve(process.cwd(), "build"));
+    });
+
+    beforeEach(() => {
+      projectDir = mkdtempSync(join(tmpdir(), "ctx-pi-routing-"));
+      mkdirSync(join(projectDir, ".pi", "context-mode"), { recursive: true });
+      mkdirSync(join(projectDir, ".claude"), { recursive: true });
+      writeFileSync(
+        join(projectDir, ".pi", "context-mode", "settings.json"),
+        JSON.stringify({ permissions: { deny: ["Bash(pi-only *)"] } }),
+        "utf-8",
+      );
+      writeFileSync(
+        join(projectDir, ".claude", "settings.json"),
+        JSON.stringify({ permissions: { deny: ["Bash(legacy-claude *)"] } }),
+        "utf-8",
+      );
+    });
+
+    afterEach(() => {
+      try { rmSync(projectDir, { recursive: true, force: true }); } catch {}
+    });
+
+    it("uses Pi project settings and ignores .claude settings", () => {
+      const piDenied = routePreToolUse(
+        "ctx_execute",
+        { language: "shell", code: "pi-only command" },
+        projectDir,
+        "pi",
+      );
+      expect(piDenied?.action).toBe("deny");
+
+      const legacyRuleIgnored = routePreToolUse(
+        "ctx_execute",
+        { language: "shell", code: "legacy-claude command" },
+        projectDir,
+        "pi",
+      );
+      expect(legacyRuleIgnored).toBeNull();
+    });
+  });
+
   describe("Codex exec_command security policy", () => {
     let projectDir: string;
     let homeDir: string;

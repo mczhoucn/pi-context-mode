@@ -1037,6 +1037,13 @@ Full configs: [`configs/kiro/mcp.json`](configs/kiro/mcp.json) | [`configs/kiro/
 
 4. Restart Pi.
 
+**Context-mode settings in Pi:** security permissions are read from exactly these two files:
+
+- Project: `<project>/.pi/context-mode/settings.json`
+- Global: `~/.pi/agents/context-mode/settings.json`
+
+Pi does not read `.claude/settings.local.json`, `.claude/settings.json`, or the generic `~/.pi/settings.json` for context-mode permissions.
+
 **Verify:** In a Pi session, type `ctx stats`. Context-mode tools should appear and respond.
 
 **Routing:** Automatic. The extension registers all key lifecycle events (`tool_call`, `tool_result`, `session_start`, `session_before_compact`), providing full session continuity and routing enforcement.
@@ -1548,7 +1555,7 @@ Context Mode enforces the same permission rules you already use — but extends 
 }
 ```
 
-Add this to your project's `.claude/settings.json` (or `~/.claude/settings.json` for global rules). All platforms read security policies from Claude Code's settings format — even on Gemini CLI, VS Code Copilot, and OpenCode. Codex CLI security enforcement requires the Codex hooks in `$CODEX_HOME/hooks.json` or `~/.codex/hooks.json` to be configured.
+For Pi, put this in `<project>/.pi/context-mode/settings.json` (or `~/.pi/agents/context-mode/settings.json` for global rules). Pi intentionally does not read `.claude/*` or `~/.pi/settings.json` as a fallback. Claude Code and the other native adapters continue to use their documented host settings; for Claude-compatible hosts, add this to your project's `.claude/settings.json` (or `~/.claude/settings.json` globally). Codex CLI security enforcement additionally requires the Codex hooks in `$CODEX_HOME/hooks.json` or `~/.codex/hooks.json` to be configured.
 
 The pattern is `Tool(what to match)` where `*` means "anything".
 
@@ -1570,7 +1577,7 @@ The guard is **on by default** and requires no configuration. To intentionally p
 }
 ```
 
-context-mode honors that allow rule (read from your `.claude/settings.json` / `~/.claude/settings.json`) exactly as Claude Code does, so an out-of-project grant lives in one place and stays meaningful.
+context-mode honors that allow rule from the active host's settings path: Pi uses `.pi/context-mode/settings.json` / `~/.pi/agents/context-mode/settings.json`, while Claude-compatible hosts use `.claude/settings.json` / `~/.claude/settings.json`. The grant therefore lives in one place for the host you are running.
 
 Reviewing the prompt: the `ctx_execute` / `ctx_execute_file` approval titles now read as code execution ("Run code in a sandbox…", "Run code over a file…") so an unfamiliar reviewer can recognise the action class even though the MCP prompt renders only the tool title and raw arguments. `ctx_execute` and `ctx_batch_execute` run arbitrary code and still inherit the process's filesystem access, so the boundary guard is a defense-in-depth layer for the *file-read* tool, not a full OS sandbox — treat approving any execution tool as approving arbitrary code, and keep host-level sandboxing enabled.
 

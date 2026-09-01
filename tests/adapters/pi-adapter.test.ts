@@ -1,6 +1,7 @@
 import "../setup-home";
 import { describe, it, expect, beforeEach } from "vitest";
 import { homedir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { PiAdapter } from "../../src/adapters/pi/index.js";
 import { ClaudeCodeAdapter } from "../../src/adapters/claude-code/index.js";
@@ -87,9 +88,9 @@ describe("PiAdapter — Pi platform adapter", () => {
       expect(eventsPath).not.toContain(".claude");
     });
 
-    it("settings path is ~/.pi/settings.json", () => {
+    it("settings path is ~/.pi/agents/context-mode/settings.json", () => {
       expect(adapter.getSettingsPath()).toBe(
-        resolve(homedir(), ".pi", "settings.json"),
+        resolve(homedir(), ".pi", "agents", "context-mode", "settings.json"),
       );
     });
 
@@ -131,8 +132,19 @@ describe("PiAdapter — Pi platform adapter", () => {
 
   describe("settings I/O", () => {
     it("readSettings returns null when file missing (graceful)", () => {
-      // Fresh fake HOME — no ~/.pi/settings.json yet
+      // Fresh fake HOME — no ~/.pi/agents/context-mode/settings.json yet
       expect(adapter.readSettings()).toBeNull();
+    });
+
+    it("does not read the legacy ~/.pi/settings.json file", () => {
+      const legacyPath = resolve(homedir(), ".pi", "settings.json");
+      mkdirSync(resolve(homedir(), ".pi"), { recursive: true });
+      writeFileSync(legacyPath, JSON.stringify({ legacy: true }), "utf-8");
+      try {
+        expect(adapter.readSettings()).toBeNull();
+      } finally {
+        rmSync(legacyPath, { force: true });
+      }
     });
 
     it("writeSettings then readSettings round-trips", () => {

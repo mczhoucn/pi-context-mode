@@ -1380,11 +1380,13 @@ describe("ctx_index: Read deny-policy enforcement (#442)", () => {
   function setupProject(
     denyRules: string[],
     files: Record<string, string>,
+    settingsPath: string[] = [".claude", "settings.json"],
   ): string {
     const dir = mkdtempSync(join(tmpdir(), "ctx-index-deny-"));
-    mkdirSync(join(dir, ".claude"), { recursive: true });
+    const settingsFile = join(dir, ...settingsPath);
+    mkdirSync(dirname(settingsFile), { recursive: true });
     writeFileSync(
-      join(dir, ".claude", "settings.json"),
+      settingsFile,
       JSON.stringify({ permissions: { deny: denyRules } }),
       "utf-8",
     );
@@ -1410,6 +1412,41 @@ describe("ctx_index: Read deny-policy enforcement (#442)", () => {
       },
     });
   }
+
+  test("ctx_index in Pi mode reads Pi settings and ignores .claude settings", async () => {
+    const projectDir = setupProject(
+      [],
+      { "public.txt": "Pi-visible content\n" },
+      [".pi", "context-mode", "settings.json"],
+    );
+    mkdirSync(join(projectDir, ".claude"), { recursive: true });
+    writeFileSync(
+      join(projectDir, ".claude", "settings.json"),
+      JSON.stringify({ permissions: { deny: ["Read(public.txt)"] } }),
+      "utf-8",
+    );
+    const fakeHome = join(projectDir, "fake-home");
+    const proc = spawnServerInProject(projectDir, {
+      CONTEXT_MODE_PLATFORM: "pi",
+      PI_PROJECT_DIR: projectDir,
+      HOME: fakeHome,
+      USERPROFILE: fakeHome,
+    });
+    try {
+      await initServer(proc, "pi");
+      const indexResp = await awaitRpc(proc, {
+        jsonrpc: "2.0", id: 100, method: "tools/call",
+        params: { name: "ctx_index", arguments: { path: "public.txt" } },
+      });
+      expect(indexResp.error).toBeUndefined();
+      expect(indexResp.result?.isError).toBeFalsy();
+      expect(indexResp.result?.content?.[0]?.text).toMatch(/Indexed \d+ section/);
+    } finally {
+      killProc(proc);
+      await waitForExit(proc);
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   // Rejects on timeout (rather than resolving undefined) so silent
   // server-spawn / import failures surface as a failing test instead of
@@ -1467,6 +1504,11 @@ describe("ctx_index: Read deny-policy enforcement (#442)", () => {
 
   function killProc(proc: ChildProcess): void {
     try { proc.kill("SIGTERM"); } catch { /* best effort */ }
+  }
+
+  async function waitForExit(proc: ChildProcess): Promise<void> {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    await new Promise<void>((resolve) => proc.once("close", () => resolve()));
   }
 
   test("ctx_index({ path: <denied> }) returns deny-policy error and never indexes", async () => {

@@ -25,7 +25,10 @@ import { resolve } from "node:path";
 
 import {
   resolveClaudeConfigDir,
+  resolveAdapterGlobalSettingsPaths,
   resolveClaudeGlobalSettingsPath,
+  resolvePiGlobalSettingsPath,
+  resolveProjectSettingsPaths,
 } from "../../src/util/claude-config.js";
 
 const SAVED = process.env.CLAUDE_CONFIG_DIR;
@@ -96,5 +99,32 @@ describe("resolveClaudeConfigDir — CLAUDE_CONFIG_DIR contract", () => {
       resolveClaudeGlobalSettingsPath(),
       resolve(homedir(), ".claude", "settings.json"),
     );
+  });
+
+  test("resolvePiGlobalSettingsPath uses the Pi agent context-mode path", () => {
+    assert.equal(
+      resolvePiGlobalSettingsPath(),
+      resolve(homedir(), ".pi", "agents", "context-mode", "settings.json"),
+    );
+  });
+
+  test("resolveProjectSettingsPaths: Pi has one context-mode-owned file", () => {
+    assert.deepEqual(resolveProjectSettingsPaths("/tmp/project", "pi"), [
+      resolve("/tmp/project", ".pi", "context-mode", "settings.json"),
+    ]);
+  });
+
+  test("resolveAdapterGlobalSettingsPaths: Pi has no Claude fallback", () => {
+    assert.deepEqual(
+      resolveAdapterGlobalSettingsPaths({}, "pi", "/tmp/context-mode-pi-home"),
+      [resolve("/tmp/context-mode-pi-home", ".pi", "agents", "context-mode", "settings.json")],
+    );
+  });
+
+  test("resolveProjectSettingsPaths: non-Pi adapters retain Claude tiers", () => {
+    assert.deepEqual(resolveProjectSettingsPaths("/tmp/project", "claude-code"), [
+      resolve("/tmp/project", ".claude", "settings.local.json"),
+      resolve("/tmp/project", ".claude", "settings.json"),
+    ]);
   });
 });

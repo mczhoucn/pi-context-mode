@@ -27,6 +27,18 @@ import {
   extractShellCommands,
 } from "../build/security.js";
 
+// The legacy suites below exercise Claude-compatible settings explicitly.
+// Pin the host so a developer machine with ~/.pi/ cannot change their
+// meaning via medium-confidence platform detection.
+const ORIGINAL_PLATFORM = process.env.CONTEXT_MODE_PLATFORM;
+beforeAll(() => {
+  process.env.CONTEXT_MODE_PLATFORM = "claude-code";
+});
+afterAll(() => {
+  if (ORIGINAL_PLATFORM === undefined) delete process.env.CONTEXT_MODE_PLATFORM;
+  else process.env.CONTEXT_MODE_PLATFORM = ORIGINAL_PLATFORM;
+});
+
 describe("parseBashPattern", () => {
   test("parseBashPattern: extracts glob from Bash(glob)", () => {
     assert.equal(parseBashPattern("Bash(sudo *)"), "sudo *");

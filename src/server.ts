@@ -844,6 +844,9 @@ function healCacheMidSession(): void {
   if (_cacheHealDone) return;
   _cacheHealDone = true;
   try {
+    // This self-heal is only for Claude Code's plugin cache. In Pi mode the
+    // extension owns its lifecycle and must not probe any .claude config.
+    if (detectPlatform().platform !== "claude-code") return;
     // Issue #460 round-3: honor $CLAUDE_CONFIG_DIR so users who relocate
     // their CC config root don't have plugin cache healing operate against
     // the wrong tree (and silently miss dangling-symlink cleanup).
@@ -1113,7 +1116,7 @@ function checkDenyPolicy(
   toolName: string,
 ): ToolResult | null {
   try {
-    const policies = readBashPolicies(process.env.CLAUDE_PROJECT_DIR);
+    const policies = readBashPolicies(getProjectDir());
     const result = evaluateCommandDenyOnly(command, policies);
     if (result.decision === "deny") {
       return trackResponse(toolName, {
@@ -1142,7 +1145,7 @@ function checkNonShellDenyPolicy(
   try {
     const commands = extractShellCommands(code, language);
     if (commands.length === 0) return null;
-    const policies = readBashPolicies(process.env.CLAUDE_PROJECT_DIR);
+    const policies = readBashPolicies(getProjectDir());
     for (const cmd of commands) {
       const result = evaluateCommandDenyOnly(cmd, policies);
       if (result.decision === "deny") {

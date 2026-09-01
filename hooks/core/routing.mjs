@@ -649,6 +649,7 @@ function getCodexConfigDir(env = process.env) {
 
 function getPlatformSettingsPath(platform) {
   if (platform === "codex") return resolve(getCodexConfigDir(), "settings.json");
+  if (platform === "pi") return resolve(homedir(), ".pi", "agents", "context-mode", "settings.json");
   return undefined;
 }
 
@@ -699,6 +700,10 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
   // Normalize platform-specific tool name to canonical
   const canonical = TOOL_ALIASES[toolName] ?? toolName;
   const platformSettingsPath = getPlatformSettingsPath(platform);
+  // routePreToolUse historically defaults to Claude-compatible behavior when
+  // the caller omits platform. Keep that contract for security settings too;
+  // explicit Pi/Codex/etc. calls still select their own paths.
+  const securityPlatform = platform || "claude-code";
 
   // ─── Bash: Stage 1 security check, then Stage 2 routing ───
   if (canonical === "Bash") {
@@ -709,7 +714,7 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
     // evaluateCommand returns { decision: "ask" } with no matchedPattern —
     // in that case fall through so other hooks and the platform's native engine can decide.
     if (security) {
-      const policies = security.readBashPolicies(projectDir, platformSettingsPath);
+      const policies = security.readBashPolicies(projectDir, platformSettingsPath, securityPlatform);
       if (policies.length > 0) {
         const result = security.evaluateCommand(command, policies);
         if (result.decision === "deny") {
@@ -925,7 +930,7 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
   if (matchesContextModeTool(toolName, "ctx_execute", "execute")) {
     if (security && toolInput.language === "shell") {
       const code = toolInput.code ?? "";
-      const policies = security.readBashPolicies(projectDir, platformSettingsPath);
+      const policies = security.readBashPolicies(projectDir, platformSettingsPath, securityPlatform);
       if (policies.length > 0) {
         const result = security.evaluateCommand(code, policies);
         if (result.decision === "deny") {
@@ -947,7 +952,7 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
     if (security) {
       // Check file path against Read deny patterns
       const filePath = toolInput.path ?? "";
-      const denyGlobs = security.readToolDenyPatterns("Read", projectDir, platformSettingsPath);
+      const denyGlobs = security.readToolDenyPatterns("Read", projectDir, platformSettingsPath, securityPlatform);
       const evalResult = security.evaluateFilePath(filePath, denyGlobs);
       if (evalResult.denied) {
         return { action: "deny", reason: `Blocked by security policy: file path matches Read deny pattern ${evalResult.matchedPattern}` };
@@ -957,7 +962,7 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
       const lang = toolInput.language ?? "";
       const code = toolInput.code ?? "";
       if (lang === "shell") {
-        const policies = security.readBashPolicies(projectDir, platformSettingsPath);
+        const policies = security.readBashPolicies(projectDir, platformSettingsPath, securityPlatform);
         if (policies.length > 0) {
           const result = security.evaluateCommand(code, policies);
           if (result.decision === "deny") {
@@ -976,7 +981,7 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
   if (matchesContextModeTool(toolName, "ctx_batch_execute", "batch_execute")) {
     if (security) {
       const commands = toolInput.commands ?? [];
-      const policies = security.readBashPolicies(projectDir, platformSettingsPath);
+      const policies = security.readBashPolicies(projectDir, platformSettingsPath, securityPlatform);
       if (policies.length > 0) {
         for (const entry of commands) {
           const cmd = entry.command ?? "";

@@ -1,7 +1,11 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 
-import { resolveAdapterGlobalSettingsPaths } from "./util/claude-config.js";
+import { detectPlatform } from "./adapters/detect.js";
+import {
+  resolveAdapterGlobalSettingsPaths,
+  resolveProjectSettingsPaths,
+} from "./util/claude-config.js";
 
 // ==============================================================================
 // Types
@@ -351,39 +355,38 @@ function readSingleSettings(path: string): SecurityPolicy | null {
 }
 
 /**
- * Read Bash permission policies from up to 3 settings files.
+ * Read Bash permission policies from the active host's settings files.
  *
- * Returns policies in precedence order (most local first):
- *   1. .claude/settings.local.json  (project-local)
- *   2. .claude/settings.json        (project-shared)
- *   3. ~/.claude/settings.json      (global)
- *
+ * Pi uses exactly two context-mode-owned tiers, in precedence order:
+ *   1. <project>/.pi/context-mode/settings.json
+ *   2. ~/.pi/agents/context-mode/settings.json
+ * Other adapters retain their native project/global settings hierarchy.
  * Missing or invalid files are silently skipped.
  */
 export function readBashPolicies(
   projectDir?: string,
   globalSettingsPath?: string,
+  platform?: string,
 ): SecurityPolicy[] {
   const policies: SecurityPolicy[] = [];
+  const activePlatform = platform ?? detectPlatform().platform;
 
   if (projectDir) {
-    const localPath = resolve(projectDir, ".claude", "settings.local.json");
-    const localPolicy = readSingleSettings(localPath);
-    if (localPolicy) policies.push(localPolicy);
-
-    const sharedPath = resolve(projectDir, ".claude", "settings.json");
-    const sharedPolicy = readSingleSettings(sharedPath);
-    if (sharedPolicy) policies.push(sharedPolicy);
+    for (const projectSettingsPath of resolveProjectSettingsPaths(projectDir, activePlatform)) {
+      const projectPolicy = readSingleSettings(projectSettingsPath);
+      if (projectPolicy) policies.push(projectPolicy);
+    }
   }
 
-  // Issue #451 round-3: read settings from EVERY adapter-specific global path
-  // PLUS the claude global (defense in depth). When the caller passes an
+  // Issue #451 round-3: read settings from every adapter-specific global path
+  // where that host supports multiple native paths. For Pi this resolves to
+  // only ~/.pi/agents/context-mode/settings.json. When the caller passes an
   // explicit globalSettingsPath we honor it verbatim (back-compat with tests
   // and callers that already know which file to read).
   const globalPaths =
     globalSettingsPath !== undefined
       ? [globalSettingsPath]
-      : resolveAdapterGlobalSettingsPaths();
+      : resolveAdapterGlobalSettingsPaths(process.env, activePlatform);
 
   for (const globalPath of globalPaths) {
     const globalPolicy = readSingleSettings(globalPath);
@@ -396,9 +399,9 @@ export function readBashPolicies(
 /**
  * Read deny patterns for a specific tool from settings files.
  *
- * Reads the same 3-tier settings as `readBashPolicies`, but extracts
- * only deny globs for the given tool. Used for Read and Grep enforcement
- * — checks if file paths should be blocked by deny patterns.
+ * Reads the same host-specific settings tiers as `readBashPolicies`, but
+ * extracts only deny globs for the given tool. Used for Read and Grep
+ * enforcement — checks if file paths should be blocked by deny patterns.
  *
  * Returns an array of arrays (one per settings file, in precedence order).
  * Each inner array contains the extracted glob strings.
@@ -407,13 +410,20 @@ export function readToolDenyPatterns(
   toolName: string,
   projectDir?: string,
   globalSettingsPath?: string,
+  platform?: string,
 ): string[][] {
-  return readToolPermissionPatterns(toolName, "deny", projectDir, globalSettingsPath);
+  return readToolPermissionPatterns(
+    toolName,
+    "deny",
+    projectDir,
+    globalSettingsPath,
+    platform,
+  );
 }
 
 /**
- * Read `permissions.{deny|allow}` globs for a tool from every settings file in
- * precedence order (project local → project shared → adapter globals).
+ * Read `permissions.{deny|allow}` globs for a tool from every active-host
+ * settings file in precedence order (project tiers before global tiers).
  *
  * Generalizes the original deny-only reader so the project-boundary guard
  * (#852) can consult the SAME `permissions.allow` rules the user already
@@ -428,8 +438,10 @@ export function readToolPermissionPatterns(
   kind: "deny" | "allow",
   projectDir?: string,
   globalSettingsPath?: string,
+  platform?: string,
 ): string[][] {
   const result: string[][] = [];
+  const activePlatform = platform ?? detectPlatform().platform;
 
   const extractGlobs = (path: string): string[] | null => {
     let raw: string;
@@ -461,25 +473,19 @@ export function readToolPermissionPatterns(
   };
 
   if (projectDir) {
-    const localGlobs = extractGlobs(
-      resolve(projectDir, ".claude", "settings.local.json"),
-    );
-    if (localGlobs !== null) result.push(localGlobs);
-
-    const sharedGlobs = extractGlobs(
-      resolve(projectDir, ".claude", "settings.json"),
-    );
-    if (sharedGlobs !== null) result.push(sharedGlobs);
+    for (const projectSettingsPath of resolveProjectSettingsPaths(projectDir, activePlatform)) {
+      const projectGlobs = extractGlobs(projectSettingsPath);
+      if (projectGlobs !== null) result.push(projectGlobs);
+    }
   }
 
-  // Issue #451 round-3: union over every adapter-specific global path PLUS
-  // claude global. Each settings file contributes its own globs array entry
-  // so the precedence ordering downstream remains per-file rather than
-  // collapsed.
+  // Issue #451 round-3: union over every adapter-specific global path. Each
+  // settings file contributes its own globs array entry so precedence remains
+  // per-file rather than collapsed; Pi supplies exactly one global path.
   const globalPaths =
     globalSettingsPath !== undefined
       ? [globalSettingsPath]
-      : resolveAdapterGlobalSettingsPaths();
+      : resolveAdapterGlobalSettingsPaths(process.env, activePlatform);
 
   for (const globalPath of globalPaths) {
     const globalGlobs = extractGlobs(globalPath);

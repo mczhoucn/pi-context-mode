@@ -11,9 +11,9 @@
  *     capabilities so harness paths that walk the JSON-stdio matrix do not
  *     try to register stdio hooks for Pi.
  *   - Config root: ~/.pi/
- *   - Settings: ~/.pi/settings.json (kept lightweight — Pi does not
- *     prescribe a canonical settings file, but several internal tools
- *     write one; using settings.json keeps parity with Claude Code).
+ *   - Settings: ~/.pi/agents/context-mode/settings.json (the Pi agent's
+ *     context-mode-owned global settings; it is intentionally separate from
+ *     Pi's own ~/.pi/settings.json).
  *   - Session dir: ~/.pi/context-mode/sessions/  (parallel to ~/.claude/,
  *     ~/.omp/) — this is the data-isolation contract from issue #473.
  *   - Instruction file: AGENTS.md (per configs/pi/AGENTS.md).
@@ -119,7 +119,7 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
   // ── Configuration ──────────────────────────────────────
 
   getSettingsPath(): string {
-    return resolve(homedir(), ".pi", "settings.json");
+    return resolve(homedir(), ".pi", "agents", "context-mode", "settings.json");
   }
 
   getInstructionFiles(): string[] {

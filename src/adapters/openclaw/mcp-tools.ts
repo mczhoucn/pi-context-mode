@@ -1,11 +1,11 @@
 /**
  * OpenClaw MCP tool registry.
  *
- * Catalogs the 11 ctx_* tools that OpenClaw plugin must register via
- * api.registerTool(...) so the routing block (which nudges agents toward
- * ctx_execute, ctx_search, etc.) actually has tools to call. Without this,
- * Phase 7 audit (v1.0.107-adapter-openclaw.json) flagged severity=CRITICAL —
- * routing-block premise is broken when the named tools don't exist.
+ * Catalogs the six agent-facing ctx_* tools that the OpenClaw plugin must
+ * register via api.registerTool(...) so the routing block (which nudges agents
+ * toward ctx_execute, ctx_search, etc.) actually has tools to call. The
+ * administrative ctx_* operations are intentionally human-only and are not
+ * included in this registry.
  *
  * Pattern mirrors the swarmvault MCP plugin
  * (refs/plugin-examples/openclaw/swarmvault/packages/engine/src/mcp.ts:46-51):
@@ -15,12 +15,10 @@
  *   api.registerTool({ name, description, parameters: TypeBox, execute(id, params) })
  *
  * Tool handlers are intentionally thin shims that delegate to the bundled CLI
- * (cli.bundle.mjs) — same fall-through pattern already used by ctx-doctor and
- * ctx-upgrade slash commands. This keeps the plugin's blast radius minimal:
+ * (cli.bundle.mjs). This keeps the plugin's blast radius minimal:
  * we don't re-export the entire MCP server stack inside OpenClaw's process.
  *
- * The 11 tools mirror src/server.ts registerTool calls (lines 897, 1226, 1371,
- * 1497, 2034, 2256, 2440, 2501, 2592, 2712, 2808).
+ * The six agent-facing tools mirror the public registry in src/server.ts.
  */
 
 /** Minimal JSON-schema-like parameter spec accepted by OpenClaw registerTool. */
@@ -78,9 +76,9 @@ function cliRedirect(toolName: string) {
 }
 
 /**
- * The 11 ctx_* tool definitions registered into OpenClaw via api.registerTool.
- * Names + descriptions mirror src/server.ts registerTool blocks 1:1 so prompts
- * referencing them (routing block, AGENTS.md) resolve to real callable tools.
+ * The six agent-facing ctx_* tool definitions registered into OpenClaw via
+ * api.registerTool. Names + descriptions mirror the public registry in
+ * src/server.ts so routing prompts resolve to real callable tools.
  */
 export const OPENCLAW_TOOL_DEFS: readonly OpenClawToolDef[] = [
   {
@@ -170,66 +168,6 @@ export const OPENCLAW_TOOL_DEFS: readonly OpenClawToolDef[] = [
       additionalProperties: true,
     },
     execute: cliRedirect("ctx_batch_execute"),
-  },
-  {
-    name: "ctx_stats",
-    description: "Show context-mode session statistics — token consumption and per-tool breakdown.",
-    parameters: {
-      type: "object",
-      properties: {},
-      additionalProperties: true,
-    },
-    execute: cliRedirect("ctx_stats"),
-  },
-  {
-    name: "ctx_doctor",
-    description: "Run context-mode diagnostics — runtimes, hooks, FTS5, plugin registration.",
-    parameters: {
-      type: "object",
-      properties: {},
-      additionalProperties: true,
-    },
-    execute: cliRedirect("ctx_doctor"),
-  },
-  {
-    name: "ctx_upgrade",
-    description: "Upgrade context-mode to the latest version.",
-    parameters: {
-      type: "object",
-      properties: {},
-      additionalProperties: true,
-    },
-    execute: cliRedirect("ctx_upgrade"),
-  },
-  {
-    name: "ctx_purge",
-    description:
-      "DESTRUCTIVE — permanently delete indexed content. CANNOT be undone.\n\n" +
-      "MUST specify exactly ONE scope:\n" +
-      "  • {confirm:true, sessionId:\"<uuid>\"}  → wipes ONLY that session's events + chunks; preserves stats and other sessions\n" +
-      "  • {confirm:true, scope:\"project\"}      → wipes ENTIRE project: FTS5 KB + every session DB + stats file\n\n" +
-      "REFUSED:\n" +
-      "  • confirm:false                              → 'purge cancelled'\n" +
-      "  • sessionId AND scope:\"project\" together     → 'ambiguous — pick one'\n" +
-      "  • scope:\"session\" without sessionId          → throws\n" +
-      "  • bare {confirm:true}                        → DEPRECATED: maps to scope:\"project\" with stderr warning\n\n" +
-      "Use sessionId for clearing one conversation. Use scope:\"project\" only when the user explicitly resets everything. NEVER call with bare {confirm:true}.",
-    parameters: {
-      type: "object",
-      properties: {},
-      additionalProperties: true,
-    },
-    execute: cliRedirect("ctx_purge"),
-  },
-  {
-    name: "ctx_insight",
-    description: "Open the hosted context-mode Insight dashboard (context-mode.com/insight) in the browser.",
-    parameters: {
-      type: "object",
-      properties: {},
-      additionalProperties: true,
-    },
-    execute: cliRedirect("ctx_insight"),
   },
 ];
 

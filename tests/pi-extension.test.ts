@@ -1326,8 +1326,8 @@ describe("Pi MCP bridge (#426)", () => {
       const { bootstrapMCPTools } = await import("../src/adapters/pi/mcp-bridge.js");
       bridge = await bootstrapMCPTools(fakePi, mcpEntry, { env: mcpEnv });
 
-      // Pin the canonical names — adding new MCP tools is fine
-      // (arrayContaining), but losing one of these is the bug regression.
+      // Pin the canonical agent-facing names. Administrative operations are
+      // intentionally absent from the MCP bridge tool catalog.
       expect(bridge.tools).toEqual(
         expect.arrayContaining([
           "ctx_execute",
@@ -1336,9 +1336,15 @@ describe("Pi MCP bridge (#426)", () => {
           "ctx_index",
           "ctx_batch_execute",
           "ctx_fetch_and_index",
+        ]),
+      );
+      expect(bridge.tools).not.toEqual(
+        expect.arrayContaining([
           "ctx_doctor",
           "ctx_stats",
+          "ctx_upgrade",
           "ctx_purge",
+          "ctx_insight",
         ]),
       );
 

@@ -424,11 +424,6 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
       "ctx_index",
       "ctx_search",
       "ctx_fetch_and_index",
-      "ctx_stats",
-      "ctx_doctor",
-      "ctx_upgrade",
-      "ctx_purge",
-      "ctx_insight",
     ]) {
       expect(skill).toContain(`context-mode/${tool}`);
     }

@@ -895,7 +895,6 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
   }
 
   // ─── Agent: inject context-mode routing into subagent prompts ───
-  // Subagents cannot use ctx commands (stats/doctor/upgrade/purge) — omit that section (#233)
   if (canonical === "Agent") {
     const subagentType = toolInput.subagent_type ?? "";
     // Detect the correct field name for the prompt/request/objective/question/query
@@ -908,7 +907,6 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
     // (the default when platform is unset). Other platforms don't defer, so skip it.
     const isClaudeCode = !platform || platform === "claude-code";
     const subagentBlock = createRoutingBlock(t, {
-      includeCommands: false,
       toolSearchBootstrap: isClaudeCode,
     });
 

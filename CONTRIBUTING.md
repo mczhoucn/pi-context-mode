@@ -10,7 +10,7 @@ I genuinely love open source and I'm grateful to have you here. Don't hesitate t
 
 ---
 
-This guide covers the local development workflow so you can test changes in a live Claude Code session before submitting a PR.
+This guide covers the local development workflow so you can test changes in a live Pi session before submitting a PR.
 
 ## Architecture Overview
 
@@ -40,12 +40,12 @@ src/
     opencode/      → OpenCode adapter
     codex/         → Codex CLI adapter
     vscode-copilot/ → VS Code Copilot adapter
-    omp/           → OMP (Oh My Pi) adapter — MCP-only, isolated ~/.omp/ storage (#473)
+    omp/           → retained upstream compatibility adapter (unsupported in this fork)
   openclaw/
     workspace-router.ts → Workspace path resolution for Pi Agent sessions
   openclaw-plugin.ts   → OpenClaw gateway plugin entry (sync register)
 hooks/               → Plain JS hooks (.mjs) — no build needed
-configs/             → Per-platform install files (settings.json, mcp.json, CLAUDE.md, etc.)
+configs/             → Retained upstream platform assets; only configs/pi is supported here
 ```
 
 `tsc` compiles `src/` → `build/`. `start.mjs` loads `server.bundle.mjs` (CI-built) if present, otherwise falls back to `build/server.js`.
@@ -86,130 +86,30 @@ Both SessionDB and ContentStore are **multi-writer-safe**. Two processes may ope
 
 ## Prerequisites
 
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed
-- Node.js 20+ or [Bun](https://bun.sh/) (recommended for speed)
-- context-mode plugin installed via marketplace
+- Pi Coding Agent
+- Node.js 22.5 or newer, or Bun
+- pnpm 10
 
 ## Local Development Setup
 
-### 1. Clone and install
+### 1. Clone, install, and build
 
 ```bash
 git clone https://github.com/mksglu/context-mode.git
 cd context-mode
-npm install
-npm run build  # tsc compiles src/ → build/
+pnpm install
+pnpm build
 ```
 
-### 2. Symlink the cache to your local clone
+### 2. Load the project extension in Pi
 
-Claude Code's plugin system manages `~/.claude/plugins/installed_plugins.json` and **will revert manual edits on restart**. The reliable approach is to replace the cache directory with a symlink to your local clone.
+This repository includes `.pi/extensions/context-mode/index.ts`, which points to the compiled Pi adapter in `build/adapters/pi/extension.js`. Start Pi from the repository root after the build so it can load that project-local extension.
 
-First, find your cached version:
+Rebuild and restart Pi whenever extension or MCP bridge code changes.
 
-```bash
-ls ~/.claude/plugins/cache/context-mode/context-mode/
-# Example output: 0.9.23
-```
+### 3. Verify the local build
 
-Then replace it with a symlink:
-
-```bash
-# Back up the cache (use your actual version number)
-mv ~/.claude/plugins/cache/context-mode/context-mode/0.9.23 \
-   ~/.claude/plugins/cache/context-mode/context-mode/0.9.23.bak
-
-# Symlink to your local clone
-ln -s /path/to/your/clone/context-mode \
-   ~/.claude/plugins/cache/context-mode/context-mode/0.9.23
-```
-
-Replace `/path/to/your/clone/context-mode` with your actual local path.
-
-> **Why symlink?** The plugin system overwrites `installed_plugins.json` on every session start, reverting any manual path changes. A symlink lets the plugin system keep its managed path while the actual code resolves to your local clone.
-
-> **Critical:** The symlink must point to the root of your clone (where `hooks/`, `build/`, and `src/` all live). Hooks registered in `hooks.json` use `${CLAUDE_PLUGIN_ROOT}` which resolves to this directory.
-
-### 3. Update PreToolUse hook in settings
-
-The symlink in step 2 ensures `hooks.json` (which registers PostToolUse, PreCompact, SessionStart, and UserPromptSubmit) resolves to your local clone via the plugin system. You only need to override PreToolUse in `~/.claude/settings.json` since its broader matcher is needed for dev mode:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|Read|Grep|WebFetch|Agent|mcp__plugin_context-mode_context-mode__ctx_execute|mcp__plugin_context-mode_context-mode__ctx_execute_file|mcp__plugin_context-mode_context-mode__ctx_batch_execute|mcp__(?!plugin_context-mode_)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/your/clone/context-mode/hooks/pretooluse.mjs"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Replace `/path/to/your/clone/context-mode` with your actual local path.
-
-> **Important:** Do NOT add PostToolUse, PreCompact, SessionStart, or UserPromptSubmit to `settings.json` — they are already registered in `hooks.json` and the symlink makes them resolve to your local clone. Adding them to both causes double invocations, split session IDs, and SQLite locking errors.
-
-### 4. Bump the version for verification
-
-Change the version in your local clone to something recognizable:
-
-```bash
-# All 4 files must be updated:
-# 1. package.json:              "version": "0.9.23-dev"
-# 2. src/server.ts:             const VERSION = "0.9.23-dev";
-# 3. .claude-plugin/plugin.json:     "version": "0.9.23-dev"
-# 4. .claude-plugin/marketplace.json: "version": "0.9.23-dev"
-```
-
-Then rebuild:
-
-```bash
-npm run build
-```
-
-### 5. Kill cached MCP processes and restart
-
-```bash
-# Kill any running context-mode processes
-pkill -f "context-mode.*start.mjs"
-
-# Verify no processes remain
-ps aux | grep context-mode | grep -v grep
-# Should return nothing
-```
-
-Restart Claude Code (`/exit` then `claude`).
-
-### 6. Verify local dev mode
-
-Run `/context-mode:ctx-doctor` in Claude Code. You should see your dev version:
-
-```
-npm (MCP): WARN — local v0.9.23-dev, latest v0.9.23
-```
-
-The version warning is expected -- it confirms you're running from your local clone, not the cache.
-
-### Restoring marketplace version
-
-To switch back to the marketplace version:
-
-```bash
-# Remove symlink and restore backup
-rm ~/.claude/plugins/cache/context-mode/context-mode/0.9.23
-mv ~/.claude/plugins/cache/context-mode/context-mode/0.9.23.bak \
-   ~/.claude/plugins/cache/context-mode/context-mode/0.9.23
-```
-
-Then revert hooks in `~/.claude/settings.json` and restart Claude Code.
-
+In a Pi session, ask `ctx_execute` to run `console.log("ok")`. The tool should return `ok`. Expand tool output with `Ctrl+O` when diagnosing a failure.
 ## Development Workflow
 
 ### Build and test your changes
@@ -238,9 +138,9 @@ npm run test:watch
 | `src/adapters/**/*.ts` | Yes | Compiles to `build/adapters/`, platform detection + hooks |
 | `configs/*` | No | Static files, served directly |
 
-After rebuilding, restart your Claude Code session. The MCP server reloads on session start.
+After rebuilding, restart your Pi session. The extension and MCP bridge reload when the session starts.
 
-> **Tip:** If you only changed hook files (`hooks/*.mjs`), just restart Claude Code — no rebuild needed. Hooks are plain JS loaded fresh on each invocation.
+> **Tip:** If you only changed hook files (`hooks/*.mjs`), restart Pi without rebuilding. Hooks are plain JavaScript loaded fresh on each invocation.
 
 ### Key files to know
 
@@ -319,34 +219,6 @@ When your change affects tool output (ctx_execute, ctx_search, ctx_fetch_and_ind
 2. Run it **again** with your change
 3. Include both outputs in your PR
 
-## Testing the OpenClaw Adapter
-
-The OpenClaw adapter has its own test suite and installation workflow.
-
-### Running tests
-
-```bash
-npx vitest run tests/plugins/openclaw.test.ts tests/adapters/openclaw.test.ts
-```
-
-These tests run without a live OpenClaw instance — they mock the plugin API.
-
-### Local OpenClaw testing
-
-To test against a running OpenClaw gateway:
-
-1. Install the plugin:
-   ```bash
-   npm run install:openclaw
-   # Or with a custom state directory:
-   npm run install:openclaw -- /path/to/openclaw-state
-   ```
-   The script picks up `$OPENCLAW_STATE_DIR` from your environment (default: `/openclaw`). It handles building, native dependency rebuild, extension registration, and gateway restart in one step.
-
-2. Open a Pi Agent session and verify hooks fire by checking the debug log output.
-
-See [`docs/adapters/openclaw.md`](docs/adapters/openclaw.md) for hook registration details and known upstream issues.
-
 ## Prose-style policy (issue [#482](https://github.com/mksglu/context-mode/issues/482))
 
 context-mode does not dictate how the model writes its final answer. The four pillars (sandbox routing, session continuity, think-in-code, no prose-style enforcement) keep raw data out of context but leave editorial style — brevity vs. completeness, formatting, tone — entirely to the model and the user's own `CLAUDE.md` / `AGENTS.md`.
@@ -379,8 +251,8 @@ the compiled server bundle. Run the build once and restart.
   instructions the extension already injects.
 - Use `ctx_search` to recall decisions, errors, and blockers from prior
   sessions instead of re-reading raw files.
-- Use `ctx_insight` for personal analytics — session activity, tool usage,
-  error rate, project focus.
+- Run `context-mode insight` for personal analytics — session activity, tool
+  usage, error rate, and project focus.
 
 For the full local dev workflow, build commands, and test instructions, see
 [the contributing guide above](#contributing-to-context-mode).
@@ -392,7 +264,7 @@ When filing a bug, **always include your prompt**. The exact message you sent to
 Required information:
 - Debug script output: `bash scripts/ctx-debug.sh` (collects OS, runtimes, configs, hooks, SQLite diagnostics)
 - The prompt that triggered the bug
-- Full error output (expand with `Ctrl+O` in Claude Code)
+- Full error output (expand with `Ctrl+O` in Pi)
 - Steps to reproduce
 
 ## Submitting a Pull Request
@@ -402,7 +274,7 @@ Required information:
 3. Follow the local development setup above
 4. Write tests first (TDD)
 5. Run `npm test` and `npm run typecheck`
-6. Test in a live Claude Code session
+6. Test in a live Pi session
 7. Compare output quality before/after
 8. Open a PR using the template
 
@@ -410,10 +282,9 @@ Required information:
 
 | Task | Command |
 |---|---|
-| Check version | `/context-mode:ctx-doctor` |
-| Upgrade plugin | `/context-mode:ctx-upgrade` |
-| View session stats | `/context-mode:ctx-stats` |
-| Purge knowledge base | `/context-mode:ctx-purge` |
+| Check version | `context-mode doctor` |
+| Upgrade plugin | `context-mode upgrade` |
+| View session stats | `context-mode statusline` |
 | Run diagnostics | `bash scripts/ctx-debug.sh` |
 | See background steps | `Ctrl+O` |
 | Kill cached server | `pkill -f "context-mode.*start.mjs"` |

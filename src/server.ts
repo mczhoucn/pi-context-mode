@@ -153,6 +153,18 @@ export interface RegisteredCtxTool {
 
 export const REGISTERED_CTX_TOOLS: RegisteredCtxTool[] = [];
 
+// Administrative operations are useful to a human at the terminal, but their
+// schemas do not belong in an agent's MCP tool catalog. Keep their handlers
+// callable for known compatibility callers while excluding them from the
+// native-plugin registry and the MCP tools/list response.
+export const HUMAN_ONLY_CTX_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "ctx_stats",
+  "ctx_doctor",
+  "ctx_upgrade",
+  "ctx_purge",
+  "ctx_insight",
+]);
+
 export function shouldSuppressMcpToolsForNativePluginHost(
   opts: { embedded?: string; platform?: PlatformId; settings?: Record<string, unknown> | null } = {},
 ): boolean {
@@ -248,9 +260,9 @@ export function __resetSuppressionDiagnosticForTests(): void {
  *
  * The reporter of #637 (SquirrelRat) inspected the suppressed child via
  * `tools/list` and read the JSON-RPC error as "the plugin never registers any
- * ctx_* tools" — when in fact the plugin DOES register all 11 tools natively
- * (verified at `src/adapters/opencode/plugin.ts:469` and
- * `tests/opencode-plugin.test.ts:88`). The misleading -32601 is the seed of
+ * ctx_* tools" — when in fact the plugin registers the six agent-facing tools
+ * natively; administrative handlers are intentionally excluded from that
+ * registry. The misleading -32601 is the seed of
  * the #637 perception.
  *
  * This helper installs an explicit handler that returns `{tools: []}` — a
@@ -286,7 +298,9 @@ const originalRegisterTool = server.registerTool.bind(server);
     return undefined;
   }
   const wrappedHandler = wrapToolHandler(name, handler);
-  REGISTERED_CTX_TOOLS.push({ name, config, handler: wrappedHandler });
+  if (!HUMAN_ONLY_CTX_TOOL_NAMES.has(name)) {
+    REGISTERED_CTX_TOOLS.push({ name, config, handler: wrappedHandler });
+  }
   args[2] = wrappedHandler;
   return (originalRegisterTool as unknown as (...callArgs: unknown[]) => unknown)(...args);
 };
@@ -379,11 +393,11 @@ export function sanitizeSchemaForStrictClients(node: unknown): unknown {
   return out;
 }
 
-// Wrap the SDK-installed tools/list handler so its generated schemas pass through
-// the sanitizer above. Best-effort by design: if the MCP SDK's internals shift,
-// the original handler is left untouched (no regression — strict clients stay as
-// they were, every other client unaffected). Must run AFTER all registerTool()
-// calls so the SDK's default tools/list handler already exists.
+// Wrap the SDK-installed tools/list handler so administrative handlers stay
+// hidden and the remaining generated schemas pass through the sanitizer above.
+// Best-effort by design: if the MCP SDK's internals shift, the original handler
+// is left untouched. Must run AFTER all registerTool() calls so the SDK's
+// default tools/list handler already exists.
 export function installStrictClientSchemaCompat(target: McpServer = server): void {
   try {
     const low = target.server as unknown as {
@@ -393,9 +407,14 @@ export function installStrictClientSchemaCompat(target: McpServer = server): voi
     if (typeof original !== "function") return;
     target.server.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
       const result = (await original(req as unknown, extra as unknown)) as
-        | { tools?: Array<{ inputSchema?: unknown }> }
+        | { tools?: Array<{ name?: string; inputSchema?: unknown }> }
         | undefined;
       if (result && Array.isArray(result.tools)) {
+        // Keep human-only administrative handlers callable by exact name, but
+        // never advertise their descriptions/schemas to an agent.
+        result.tools = result.tools.filter(
+          (tool) => !HUMAN_ONLY_CTX_TOOL_NAMES.has(tool?.name ?? ""),
+        );
         for (const tool of result.tools) {
           if (!tool || tool.inputSchema == null) continue;
           try {
@@ -801,7 +820,7 @@ async function fetchLatestVersion(): Promise<string> {
 
 function getUpgradeHint(): string {
   const name = _detectedAdapter?.name;
-  if (name === "Claude Code") return "/ctx-upgrade";
+  if (name === "Claude Code") return "context-mode upgrade";
   if (name === "OpenClaw") return "npm run install:openclaw";
   if (name === "Pi") return "npm run build";
   return "npm update -g context-mode";

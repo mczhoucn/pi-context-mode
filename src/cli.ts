@@ -967,7 +967,7 @@ async function doctor(): Promise<number> {
               color.dim(
                 "\n  This file is committed to git, so teammates and CI will get your path and the hooks will break for them." +
                 `\n  Found ${offenders.length} hard-coded path(s), e.g.: ${example}` +
-                "\n  Fix: run /context-mode:ctx-upgrade — it rewrites the file to a portable form that works on every machine." +
+                "\n  Fix: run `context-mode upgrade` — it rewrites the file to a portable form that works on every machine." +
                 "\n  Details: https://github.com/mksglu/context-mode/issues/613",
               ),
           );
@@ -985,7 +985,7 @@ async function doctor(): Promise<number> {
             ` — ${rel} is not valid JSON` +
             color.dim(
               "\n  Doctor cannot scan it for portability issues until the file parses." +
-              "\n  Fix: open the file and check it in a JSON validator, or delete it and run /context-mode:ctx-upgrade to regenerate." +
+              "\n  Fix: open the file and check it in a JSON validator, or delete it and run `context-mode upgrade` to regenerate." +
               `\n  Parser said: ${msg.slice(0, 160)}`,
             ),
         );
@@ -1044,7 +1044,7 @@ async function doctor(): Promise<number> {
             color.dim(
               `\n  Path: ${cacheRoot}` +
               `\n  Reason: ${msg.slice(0, 160)}` +
-              "\n  Fix: check that the directory is readable, then re-run doctor. If the issue persists, run /context-mode:ctx-upgrade.",
+              "\n  Fix: check that the directory is readable, then re-run `context-mode doctor`. If the issue persists, run `context-mode upgrade`.",
             ),
         );
         staleCount = 0;
@@ -1062,7 +1062,7 @@ async function doctor(): Promise<number> {
             color.dim(
               "\n  These are harmless but should be cleaned up so they cannot confuse Claude Code after an auto-update." +
               `\n  Versions affected: ${staleVersions.join(", ")}${staleCount > staleVersions.length ? ", ..." : ""}` +
-              "\n  Fix: run /context-mode:ctx-upgrade — it sweeps these files automatically on the next run." +
+              "\n  Fix: run `context-mode upgrade` — it sweeps these files automatically on the next run." +
               "\n  Details: https://github.com/mksglu/context-mode/issues/609",
             ),
         );
@@ -1109,7 +1109,7 @@ async function doctor(): Promise<number> {
             `\n  Path: ${bsqPackageDir}` +
             "\n  Root cause: npm silently skipped better-sqlite3 because the package's `engines` field excluded the running Node (issue #514, e.g. Node 26 vs better-sqlite3@12.x)." +
             `\n  Try (primary): cd "${pluginRootForDoctor}" && npm install better-sqlite3 --no-optional` +
-            "\n  Try (fallback): /context-mode:ctx-upgrade",
+            "\n  Try (fallback): `context-mode upgrade`",
           ),
       );
     } else if (message.includes("Cannot find module") || message.includes("MODULE_NOT_FOUND")) {
@@ -1165,7 +1165,7 @@ async function doctor(): Promise<number> {
     p.log.warn(
       color.yellow("npm (MCP): WARN") +
         ` — local v${localVersion}, latest v${latestVersion}` +
-        color.dim("\n  Run: /context-mode:ctx-upgrade"),
+        color.dim("\n  Run: `context-mode upgrade`"),
     );
   }
 
@@ -1188,7 +1188,7 @@ async function doctor(): Promise<number> {
     p.log.warn(
       color.yellow(`${adapter.name}: WARN`) +
         ` — v${installedVersion}, latest v${latestVersion}` +
-        color.dim("\n  Run: /context-mode:ctx-upgrade"),
+        color.dim("\n  Run: `context-mode upgrade`"),
     );
   } else {
     p.log.info(
@@ -1756,7 +1756,7 @@ async function upgrade(opts?: { platform?: string }) {
               color.dim(`\n  Path: ${bsqBindingPath}`) +
               color.dim("\n  Cause: npm silently skipped the package (Node engine mismatch, issue #514)") +
               color.dim(`\n  Try (primary): cd "${pluginRoot}" && npm install better-sqlite3 --no-optional`) +
-              color.dim("\n  Try (fallback): /context-mode:ctx-doctor"),
+              color.dim("\n  Try (fallback): `context-mode doctor`"),
           );
         }
         
@@ -1865,7 +1865,7 @@ async function upgrade(opts?: { platform?: string }) {
         color.dim(" — old version is still on disk; hooks/settings will still be refreshed."),
     );
     p.log.info(
-      color.dim("  Recovery: re-run /ctx-upgrade once network is stable, or run /context-mode:ctx-doctor for a full health check."),
+      color.dim("  Recovery: re-run `context-mode upgrade` once network is stable, or run `context-mode doctor` for a full health check."),
     );
 
     try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }

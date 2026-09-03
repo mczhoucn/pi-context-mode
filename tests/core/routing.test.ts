@@ -7,12 +7,11 @@ import {
 import { createRoutingBlock } from "../../hooks/routing-block.mjs";
 import { createToolNamer } from "../../hooks/core/tool-naming.mjs";
 
-// Subagent routing uses createRoutingBlock(t, { includeCommands: false }).
-// For claude-code (incl. the default when platform is unset) it also enables the
-// ToolSearch bootstrap so deferred ctx_* tools are loadable by the subagent (#724).
+// For claude-code (incl. the default when platform is unset), subagent
+// routing also enables the ToolSearch bootstrap so deferred ctx_* tools are
+// loadable by the subagent (#724).
 const _t = createToolNamer("claude-code");
 const SUBAGENT_BLOCK = createRoutingBlock(_t, {
-  includeCommands: false,
   toolSearchBootstrap: true,
 });
 
@@ -504,7 +503,7 @@ describe("Bash nudge size threshold (#817)", () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe("Issue #856: session_continuity framing is a soft hint, not a standing order", () => {
-  const BLOCK = createRoutingBlock(_t, { includeCommands: false });
+  const BLOCK = createRoutingBlock(_t);
 
   it("does not assert directives remain active 'until the user revokes them'", () => {
     expect(BLOCK).not.toContain("remain active until the user revokes them");

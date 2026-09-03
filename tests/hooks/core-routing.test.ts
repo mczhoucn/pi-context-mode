@@ -38,7 +38,7 @@ let routePreToolUse: (
 let resetGuidanceThrottle: (sessionId?: string) => void;
 let initSecurity: (buildDir: string) => Promise<boolean>;
 let ROUTING_BLOCK: string;
-let createRoutingBlock: (t: any, options?: { includeCommands?: boolean; toolSearchBootstrap?: boolean }) => string;
+let createRoutingBlock: (t: any, options?: { toolSearchBootstrap?: boolean }) => string;
 let READ_GUIDANCE: string;
 let GREP_GUIDANCE: string;
 
@@ -563,22 +563,20 @@ describe("routePreToolUse", () => {
       expect(prompt).not.toContain("<ctx_commands>");
     });
 
-    it("ROUTING_BLOCK constant includes ctx_commands for main session", () => {
-      expect(ROUTING_BLOCK).toContain("<ctx_commands>");
-      expect(ROUTING_BLOCK).toContain("ctx stats");
+    it("routing blocks omit administrative command guidance", () => {
+      expect(ROUTING_BLOCK).not.toContain("<ctx_commands>");
+      expect(ROUTING_BLOCK).not.toContain("ctx_stats");
+      expect(ROUTING_BLOCK).not.toContain("ctx_doctor");
+      expect(ROUTING_BLOCK).not.toContain("ctx_upgrade");
+      expect(ROUTING_BLOCK).not.toContain("ctx_purge");
+      expect(ROUTING_BLOCK).not.toContain("ctx_insight");
     });
 
-    it("createRoutingBlock with includeCommands: false omits section", () => {
-      const t = (name: string) => `mcp__test__${name}`;
-      const block = createRoutingBlock(t, { includeCommands: false });
-      expect(block).not.toContain("<ctx_commands>");
-      expect(block).toContain("<tool_selection_hierarchy>");
-    });
-
-    it("createRoutingBlock default includes ctx_commands", () => {
+    it("createRoutingBlock keeps the agent tool hierarchy", () => {
       const t = (name: string) => `mcp__test__${name}`;
       const block = createRoutingBlock(t);
-      expect(block).toContain("<ctx_commands>");
+      expect(block).toContain("<tool_selection_hierarchy>");
+      expect(block).not.toContain("<ctx_commands>");
     });
   });
 

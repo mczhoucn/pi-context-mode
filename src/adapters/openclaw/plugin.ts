@@ -836,7 +836,7 @@ export default {
       { priority: 5 },
     );
 
-    // ── 8b. registerTool — Expose 11 ctx_* tools (SLICE OClaw-1) ────
+    // ── 8b. registerTool — Expose six agent-facing ctx_* tools ────────
     // Phase 7 audit (v1.0.107-adapter-openclaw.json) flagged severity=CRITICAL:
     // routing block tells agents to call ctx_execute / ctx_search / etc. but
     // nothing called api.registerTool, so the tools didn't exist in the

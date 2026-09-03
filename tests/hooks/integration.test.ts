@@ -687,36 +687,19 @@ describe("Plugin Tool Name Format in ROUTING_BLOCK", () => {
 describe("Skill Commands", () => {
   const SKILLS_DIR = join(__dirname, "..", "..", "skills");
 
-  test("ctx-doctor skill directory exists with valid SKILL.md", () => {
-    const skillMd = join(SKILLS_DIR, "ctx-doctor", "SKILL.md");
-    assert.ok(existsSync(skillMd), "skills/ctx-doctor/SKILL.md must exist");
-    const content = readFileSync(skillMd, "utf-8");
-    assert.ok(content.includes("name: ctx-doctor"), "SKILL.md name must be ctx-doctor");
-    assert.ok(content.includes("/context-mode:ctx-doctor"), "Trigger must reference ctx-doctor");
-  });
-
-  test("ctx-upgrade skill directory exists with valid SKILL.md", () => {
-    const skillMd = join(SKILLS_DIR, "ctx-upgrade", "SKILL.md");
-    assert.ok(existsSync(skillMd), "skills/ctx-upgrade/SKILL.md must exist");
-    const content = readFileSync(skillMd, "utf-8");
-    assert.ok(content.includes("name: ctx-upgrade"), "SKILL.md name must be ctx-upgrade");
-    assert.ok(content.includes("/context-mode:ctx-upgrade"), "Trigger must reference ctx-upgrade");
-  });
-
-  test("ctx-stats skill directory exists with valid SKILL.md", () => {
-    const skillMd = join(SKILLS_DIR, "ctx-stats", "SKILL.md");
-    assert.ok(existsSync(skillMd), "skills/ctx-stats/SKILL.md must exist");
-    const content = readFileSync(skillMd, "utf-8");
-    assert.ok(content.includes("name: ctx-stats"), "SKILL.md name must be ctx-stats");
-    assert.ok(content.includes("/context-mode:ctx-stats"), "Trigger must reference ctx-stats");
-  });
-
-  test("old skill directories (doctor, upgrade, stats) no longer exist", () => {
-    for (const old of ["doctor", "upgrade", "stats"]) {
+  test("human-only administrative skills are not shipped", () => {
+    for (const name of ["ctx-stats", "ctx-doctor", "ctx-upgrade", "ctx-purge", "ctx-insight"]) {
       assert.ok(
-        !existsSync(join(SKILLS_DIR, old)),
-        `Old skill directory skills/${old} must not exist`,
+        !existsSync(join(SKILLS_DIR, name)),
+        `Human-only skill directory skills/${name} must not exist`,
       );
+    }
+  });
+
+  test("agent-facing index and search skills remain available", () => {
+    for (const name of ["ctx-index", "ctx-search"]) {
+      const skillMd = join(SKILLS_DIR, name, "SKILL.md");
+      assert.ok(existsSync(skillMd), `skills/${name}/SKILL.md must exist`);
     }
   });
 });

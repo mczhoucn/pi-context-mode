@@ -470,7 +470,7 @@ describe("formatReport", () => {
       const output = formatReport(report, "1.0.65", "1.0.70");
       expect(output).toContain("Update available");
       expect(output).toContain("v1.0.65 -> v1.0.70");
-      expect(output).toContain("ctx_upgrade");
+      expect(output).toContain("context-mode upgrade");
     });
 
     it("no update warning when version matches", () => {

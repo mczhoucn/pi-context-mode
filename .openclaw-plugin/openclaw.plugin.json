@@ -16,12 +16,7 @@
       "ctx_index",
       "ctx_search",
       "ctx_fetch_and_index",
-      "ctx_batch_execute",
-      "ctx_stats",
-      "ctx_doctor",
-      "ctx_upgrade",
-      "ctx_purge",
-      "ctx_insight"
+      "ctx_batch_execute"
     ]
   },
   "configSchema": {

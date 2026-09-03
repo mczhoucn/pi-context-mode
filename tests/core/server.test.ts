@@ -2359,9 +2359,9 @@ describe("ctx_upgrade tool: inline fallback for missing CLI", () => {
   });
 });
 
-// ─── ctx_purge is the ONLY reset mechanism ──────────────────────────────────
+// ─── Administrative handlers are hidden from the agent catalog ───────────────
 
-describe("ctx_purge is the sole reset/wipe mechanism", () => {
+describe("administrative handlers stay out of agent guidance", () => {
   const serverSrc = readFileSync(
     resolve(__dirname, "../../src/server.ts"),
     "utf-8",
@@ -2395,8 +2395,8 @@ describe("ctx_purge is the sole reset/wipe mechanism", () => {
     expect(routingBlockSrc).not.toContain("ctx_stats(reset");
   });
 
-  test("routing block informs user about ctx_purge availability", () => {
-    expect(routingBlockSrc).toMatch(/ctx.purge/i);
+  test("routing block omits administrative tool guidance", () => {
+    expect(routingBlockSrc).not.toMatch(/ctx[._-](stats|doctor|upgrade|purge|insight)/i);
   });
 
   // ── ctx_purge is the complete wipe tool ──
@@ -2965,8 +2965,8 @@ describe("Version outdated warning in trackResponse", () => {
 
   test("getUpgradeHint returns platform-specific command", () => {
     expect(serverSrc).toContain("function getUpgradeHint");
-    // Claude Code gets slash command
-    expect(serverSrc).toMatch(/claude.code.*ctx.upgrade|ctx.upgrade.*claude.code/i);
+    // Claude Code gets the terminal upgrade command
+    expect(serverSrc).toMatch(/claude.code.*context.mode upgrade|context.mode upgrade.*claude.code/i);
     // npm platforms get npm update
     expect(serverSrc).toContain("npm update -g context-mode");
     // OpenClaw gets its own command
@@ -4277,7 +4277,8 @@ describe("ctx_doctor hook script checks", () => {
   );
 
   test("resolves relative hook script paths against pluginRoot", () => {
-    const doctorSection = serverSrc.slice(serverSrc.indexOf("ctx_doctor"), serverSrc.indexOf("ctx_upgrade"));
+    const doctorStart = serverSrc.indexOf('server.registerTool(\n  "ctx_doctor"');
+    const doctorSection = serverSrc.slice(doctorStart, serverSrc.indexOf("// ── ctx-upgrade:", doctorStart));
     expect(doctorSection).toContain("for (const scriptPath of hookScriptPaths)");
     expect(doctorSection).toContain("const hookPath = resolve(pluginRoot, scriptPath)");
     expect(doctorSection).not.toContain("for (const hookPath of hookScriptPaths)");
@@ -5264,6 +5265,37 @@ test("OpenCode/Kilo legacy MCP child emits stderr diagnostic when ctx_* suppress
 // is active, so the wire response becomes `{tools: []}` (spec-compliant,
 // matches what operators expect) paired with the existing stderr diagnostic.
 // This eliminates the misleading -32601 that started #637.
+test("tools/list omits human-only administrative handlers", async () => {
+  const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+  const { z } = await import("zod");
+  const { installStrictClientSchemaCompat } = await import("../../src/server.js");
+
+  const mcp = new McpServer({ name: "human-only-filter", version: "0.0.0" });
+  mcp.registerTool("ctx_execute", {
+    description: "agent tool",
+    inputSchema: z.object({}),
+  }, async () => ({ content: [{ type: "text", text: "ok" }] }));
+  mcp.registerTool("ctx_stats", {
+    description: "administrative tool",
+    inputSchema: z.object({}),
+  }, async () => ({ content: [{ type: "text", text: "ok" }] }));
+  installStrictClientSchemaCompat(mcp);
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([
+    mcp.server.connect(serverTransport),
+    (async () => {
+      const client = new Client({ name: "human-only-filter-probe", version: "0.0.0" }, { capabilities: {} });
+      await client.connect(clientTransport);
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toEqual(["ctx_execute"]);
+      await client.close();
+    })(),
+  ]);
+});
+
 test("registerEmptyToolsListHandler responds with {tools:[]} so operators don't see -32601 on suppressed MCP child (#637)", async () => {
   // The user-facing failure mode that drove issue #637: an operator inspecting
   // the suppressed legacy MCP child via `tools/list` (or whose MCP host probes
@@ -5395,8 +5427,10 @@ describe("tool description style contract (#683 ADR-0002)", () => {
   // meets the canonical contract enforced below.
   const EXEMPT_FROM_FORBIDDEN_TOKENS = new Set<string>([]);
 
-  test("at least 11 ctx_* tools are registered", () => {
-    // Sanity check that the extractor found the corpus.
+  test("source retains the six public and five human-only tool contracts", () => {
+    // The five human-only handlers remain in source for their compatibility
+    // and CLI-adjacent implementation contracts, but are excluded from the
+    // exported/native agent registry and tools/list.
     expect(tools.length).toBeGreaterThanOrEqual(11);
   });
 
@@ -5976,7 +6010,7 @@ describe("tool description source form contract (#683 PR follow-up)", () => {
     "ctx_insight",
   ]);
 
-  test("at least 11 ctx_* tools surfaced for source-form contract", () => {
+  test("source-form contract covers public and human-only handlers", () => {
     expect(blocks.length).toBeGreaterThanOrEqual(11);
   });
 
@@ -6721,11 +6755,6 @@ describe("ctx_* MCP tool annotations (#846)", () => {
     ctx_search:          { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
     ctx_fetch_and_index: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  },
     ctx_batch_execute:   { readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: true  },
-    ctx_stats:           { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
-    ctx_doctor:          { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
-    ctx_upgrade:         { readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false },
-    ctx_purge:           { readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false },
-    ctx_insight:         { readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: true  },
   };
   const tools = REGISTERED_CTX_TOOLS as Array<{ name: string; config: { annotations?: Hints } }>;
   const find = (name: string) => tools.find((t) => t.name === name);
@@ -6743,16 +6772,14 @@ describe("ctx_* MCP tool annotations (#846)", () => {
     }
   });
 
-  test("read-only diagnostic/query tools are readOnlyHint:true (the #846 cancellation fix)", () => {
-    for (const name of ["ctx_search", "ctx_stats", "ctx_doctor"]) {
-      expect(find(name)!.config.annotations!.readOnlyHint).toBe(true);
-    }
+  test("read-only search tool is readOnlyHint:true", () => {
+    expect(find("ctx_search")!.config.annotations!.readOnlyHint).toBe(true);
   });
 
-  test("never blanket-marks executing/mutating/destructive tools read-only", () => {
+  test("never blanket-marks executing/mutating tools read-only", () => {
     for (const name of [
       "ctx_execute", "ctx_execute_file", "ctx_batch_execute", "ctx_index",
-      "ctx_fetch_and_index", "ctx_purge", "ctx_upgrade", "ctx_insight",
+      "ctx_fetch_and_index",
     ]) {
       expect(find(name)!.config.annotations!.readOnlyHint).toBe(false);
     }

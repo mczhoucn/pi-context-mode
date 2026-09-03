@@ -90,16 +90,11 @@ describe("ContextModePlugin", () => {
       expect(plugin).toHaveProperty("tool");
       expect(Object.keys(plugin.tool ?? {}).sort()).toEqual([
         "ctx_batch_execute",
-        "ctx_doctor",
         "ctx_execute",
         "ctx_execute_file",
         "ctx_fetch_and_index",
         "ctx_index",
-        "ctx_insight",
-        "ctx_purge",
         "ctx_search",
-        "ctx_stats",
-        "ctx_upgrade",
       ]);
     });
 
@@ -138,21 +133,11 @@ describe("ContextModePlugin", () => {
       },
     );
 
-    it("ctx_stats native plugin tool executes without an MCP child (#574 smoke)", async () => {
-      const projectDir = join(tempDir, "factory-native-tool-exec");
-      const plugin = await createTestPlugin(projectDir);
-      const result = await plugin.tool!.ctx_stats.execute({}, {
-        sessionID: "session-native-tool",
-        messageID: "msg-native-tool",
-        agent: "test-agent",
-        directory: projectDir,
-        worktree: projectDir,
-        abort: new AbortController().signal,
-        metadata: () => {},
-        ask: (() => ({}) as any) as any,
-      });
-      const output = typeof result === "string" ? result : result.output;
-      expect(output).toContain("context-mode");
+    it("does not expose administrative tools in the native plugin map", async () => {
+      const plugin = await createTestPlugin(join(tempDir, "factory-native-tool-filter"));
+      for (const name of ["ctx_stats", "ctx_doctor", "ctx_upgrade", "ctx_purge", "ctx_insight"]) {
+        expect(plugin.tool?.[name as keyof typeof plugin.tool]).toBeUndefined();
+      }
     });
 
     // ── #621: native plugin must run Zod preprocessing on args ────────
@@ -342,21 +327,6 @@ describe("ContextModePlugin", () => {
         expect(output).toContain("issue627-bg");
       });
 
-      it("ctx_purge accepts stringified confirm boolean (#627)", async () => {
-        const projectDir = join(tempDir, "issue-627-purge-confirm");
-        const plugin = await createTestPlugin(projectDir);
-        // confirm: z.boolean() rejects "false". With the boolean coercion
-        // fix, "false" becomes false → ctx_purge returns "purge cancelled"
-        // (its documented refusal path) instead of throwing on validation.
-        const result = await plugin.tool!.ctx_purge.execute(
-          {
-            confirm: "false" as unknown as boolean,
-          },
-          baseCtx(projectDir),
-        );
-        const output = typeof result === "string" ? result : result.output;
-        expect(output).toMatch(/cancel/i);
-      });
     });
 
     it("native tool registry import does not leak process handlers or embedded env into OpenCode host", () => {

@@ -380,73 +380,9 @@ describe("OMP plugin", () => {
     });
   });
 
-  // ── Issue #677: package.json `omp` manifest key contract ──────────
-  //
-  // OMP's plugin runtime exposes TWO manifest-key resolvers (verified
-  // against oh-my-pi `packages/coding-agent/src/extensibility/plugins/
-  // loader.ts:179-189`):
-  //
-  //   resolvePluginHookPaths(plugin)        ← reads `omp.hooks`
-  //   resolvePluginExtensionPaths(plugin)   ← reads `omp.extensions`
-  //
-  // Only the `extensions` resolver is wired into the runtime
-  // (`extensions/loader.ts` imports `getAllPluginExtensionPaths` and
-  // executes the returned modules). The `hooks` resolver is defined and
-  // exported but never imported by any runtime consumer — a grep of the
-  // oh-my-pi tree confirms `resolvePluginHookPaths` / `getAllPlugin
-  // HookPaths` have ONE import site each, both inside `plugins/loader.ts`
-  // itself.
-  //
-  // Result: `omp.hooks` is a dead manifest key. Plugins that declare
-  // their entry under `hooks` install cleanly via `omp plugin install`
-  // but their handlers never register — every event silently no-ops.
-  // Issue #677 surfaced this in production: `tool_call`,
-  // `session_start`, `session_before_compact` all dropped after
-  // `omp plugin install context-mode`. The fix is mechanical — switch
-  // `omp.hooks` → `omp.extensions` in our package.json — but the dead
-  // key would silently come back any time someone copy-edits the
-  // manifest from an older example. This test pins the contract.
-  describe("package.json omp manifest (issue #677)", () => {
-    it("declares omp.extensions, NOT omp.hooks (dead key in OMP loader)", async () => {
-      const { readFileSync } = await import("node:fs");
-      const { resolve } = await import("node:path");
-      const repoRoot = resolve(__dirname, "..", "..");
-      const pkg = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8")) as {
-        omp?: { hooks?: unknown; extensions?: unknown };
-      };
-      expect(pkg.omp, "package.json must declare an `omp` field").toBeDefined();
-      expect(
-        pkg.omp!.hooks,
-        "package.json `omp.hooks` is a dead OMP loader key — use `omp.extensions` instead (see oh-my-pi plugins/loader.ts:179-189)",
-      ).toBeUndefined();
-      expect(
-        pkg.omp!.extensions,
-        "package.json `omp.extensions` must be set so OMP's runtime extension loader picks up the plugin",
-      ).toBeDefined();
-    });
-
-    it("omp.extensions is an array of resolvable plugin-relative paths", async () => {
-      const { readFileSync, existsSync } = await import("node:fs");
-      const { resolve } = await import("node:path");
-      const repoRoot = resolve(__dirname, "..", "..");
-      const pkg = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8")) as {
-        omp?: { extensions?: unknown };
-      };
-      // OMP's resolvePluginPaths accepts BOTH string and array
-      // (Array.isArray(base) ? base : [base]) but pi.extensions is an
-      // array — keep the same shape for consistency + reviewer clarity.
-      expect(Array.isArray(pkg.omp?.extensions)).toBe(true);
-      const paths = pkg.omp?.extensions as string[];
-      expect(paths.length).toBeGreaterThan(0);
-      for (const relPath of paths) {
-        expect(relPath, "extension path must be plugin-relative").toMatch(/^\.\//);
-        expect(
-          existsSync(resolve(repoRoot, relPath)),
-          `extension file ${relPath} must exist (run npm run build first)`,
-        ).toBe(true);
-      }
-    });
-  });
+  // The Pi-only distribution intentionally omits package.json's `omp`
+  // auto-registration manifest. The adapter behavior tests below remain as
+  // upstream-compatibility coverage, not as a supported installation contract.
 
   // ═══════════════════════════════════════════════════════════
   // Slice 5: MCP self-registration (issue #677)

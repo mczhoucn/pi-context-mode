@@ -30,12 +30,6 @@ If agy uses the generic MCP wrapper, call `call_mcp_tool` with:
   memory. Batch related questions in `queries`.
 - `context-mode/ctx_fetch_and_index`: fetch web content, store it, then query
   with `ctx_search`.
-- `context-mode/ctx_stats`: show context savings and current-session stats.
-- `context-mode/ctx_doctor`: diagnose context-mode runtime and hook health.
-- `context-mode/ctx_upgrade`: provide upgrade or repair guidance.
-- `context-mode/ctx_purge`: purge stored context-mode knowledge after
-  confirmation.
-- `context-mode/ctx_insight`: launch or report the Insight analytics app.
 
 When the user asks "what context-mode tools are available", answer from this
 list. Do not list `~/.gemini/antigravity-cli/mcp/context-mode` and do not read

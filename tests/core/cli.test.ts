@@ -9,7 +9,7 @@
 import { describe, it, test, expect, beforeEach, afterEach } from "vitest";
 import { strict as assert } from "node:assert";
 import { readFileSync, existsSync, accessSync, constants, mkdirSync, writeFileSync, rmSync, readdirSync, cpSync, symlinkSync, lstatSync } from "node:fs";
-import { resolve, join, dirname, sep } from "node:path";
+import { resolve, join, dirname, relative, sep } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { execSync, spawnSync } from "node:child_process";
@@ -17,6 +17,35 @@ import { toUnixPath } from "../../src/cli.js";
 import { findMissingLaunchFiles } from "../../src/util/plugin-cache-integrity.js";
 
 const ROOT = resolve(import.meta.dirname, "../..");
+
+const NON_PI_INSTALL_GUIDES = [
+  ".cursor-plugin/README.md",
+  "configs/copilot-cli/README.md",
+  "docs/adapters/kimi-code.md",
+  "docs/adapters/openclaw.md",
+  "docs/jetbrains-copilot.md",
+] as const;
+
+const NON_PI_INSTALL_TARGETS = [
+  "Claude Code",
+  "Gemini CLI",
+  "VS Code Copilot",
+  "JetBrains Copilot",
+  "GitHub Copilot CLI",
+  "Cursor",
+  "OpenCode",
+  "KiloCode",
+  "OpenClaw",
+  "Codex CLI",
+  "Kimi Code",
+  "Qwen Code",
+  "Antigravity IDE",
+  "Antigravity CLI (<code>agy</code>)",
+  "Kiro",
+  "Zed",
+] as const;
+
+const OMP_SUPPORT_PATTERN = /\bOMP\b|Oh My Pi|\.omp\//i;
 
 describe("hook dispatch fails OPEN on a missing hook (version-skew brick fix)", () => {
   // A non-zero exit + empty stdout makes GitHub Copilot CLI DENY the tool
@@ -155,21 +184,12 @@ describe("cli.bundle.mjs — marketplace install support", () => {
     expect(src).toMatch(/for\s*\(.*\["build\/cli\.js",\s*"cli\.bundle\.mjs"\]/);
   });
 
-  // ── Skill files ────────────────────────────────────────────
+  // ── Administrative skills are intentionally not shipped ─────────
 
-  it("ctx-upgrade skill uses cli.bundle.mjs with fallback", () => {
-    const skill = readFileSync(resolve(ROOT, "skills", "ctx-upgrade", "SKILL.md"), "utf-8");
-    expect(skill).toContain("cli.bundle.mjs");
-    expect(skill).toContain("build/cli.js");
-    // Fallback pattern: try bundle first, then build
-    expect(skill).toMatch(/CLI=.*cli\.bundle\.mjs.*\[ ! -f.*\].*build\/cli\.js/);
-  });
-
-  it("ctx-doctor skill uses cli.bundle.mjs with fallback", () => {
-    const skill = readFileSync(resolve(ROOT, "skills", "ctx-doctor", "SKILL.md"), "utf-8");
-    expect(skill).toContain("cli.bundle.mjs");
-    expect(skill).toContain("build/cli.js");
-    expect(skill).toMatch(/CLI=.*cli\.bundle\.mjs.*\[ ! -f.*\].*build\/cli\.js/);
+  it("does not ship skills for human-only administrative operations", () => {
+    for (const name of ["ctx-stats", "ctx-doctor", "ctx-upgrade", "ctx-purge", "ctx-insight"]) {
+      expect(existsSync(resolve(ROOT, "skills", name, "SKILL.md"))).toBe(false);
+    }
   });
 
   it("ctx-index and ctx-search skills expose slash-style triggers", () => {
@@ -189,6 +209,98 @@ describe("cli.bundle.mjs — marketplace install support", () => {
     const gitignore = readFileSync(resolve(ROOT, ".gitignore"), "utf-8");
     expect(gitignore).toContain("server.bundle.mjs");
     expect(gitignore).toContain("cli.bundle.mjs");
+  });
+});
+
+describe("Pi-only installation documentation", () => {
+  test("package metadata advertises Pi and does not register OMP", () => {
+    const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8"));
+    const advertisedMetadata = JSON.stringify({
+      description: pkg.description,
+      keywords: pkg.keywords,
+    });
+
+    expect(pkg.pi).toBeDefined();
+    expect(pkg.omp).toBeUndefined();
+    expect(advertisedMetadata).toContain("Pi Coding Agent");
+    expect(advertisedMetadata).not.toMatch(OMP_SUPPORT_PATTERN);
+    for (const target of NON_PI_INSTALL_TARGETS) {
+      expect(advertisedMetadata.toLowerCase()).not.toContain(target.toLowerCase());
+    }
+  });
+
+  test("README installation guide contains only the Pi integration", () => {
+    const readme = readFileSync(resolve(ROOT, "README.md"), "utf8");
+    const installStart = readme.indexOf("## Install");
+    const installEnd = readme.indexOf("## Tools", installStart);
+    expect(installStart).toBeGreaterThanOrEqual(0);
+    expect(installEnd).toBeGreaterThan(installStart);
+
+    const installGuide = readme.slice(installStart, installEnd);
+    expect(installGuide).toContain("<strong>Pi Coding Agent</strong>");
+    expect(installGuide).not.toMatch(OMP_SUPPORT_PATTERN);
+    for (const target of NON_PI_INSTALL_TARGETS) {
+      expect(installGuide.toLowerCase()).not.toContain(target.toLowerCase());
+    }
+  });
+
+  test("repository does not ship dedicated non-Pi installation guides", () => {
+    for (const path of NON_PI_INSTALL_GUIDES) {
+      expect(existsSync(resolve(ROOT, path)), path).toBe(false);
+    }
+
+    const markdownFiles: string[] = [];
+    const visit = (directory: string): void => {
+      if (!existsSync(directory)) return;
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = resolve(directory, entry.name);
+        if (entry.isDirectory()) visit(path);
+        else if (/\.(?:md|mdc)$/i.test(entry.name)) markdownFiles.push(path);
+      }
+    };
+    for (const root of ["docs", "configs", ".cursor-plugin"]) {
+      visit(resolve(ROOT, root));
+    }
+
+    const installHeading = /^(?:#{1,6}\s+.*\b(?:install(?:ation)?|setup|verif(?:y|ication))\b|\*\*(?:install|verif(?:y|ication))\b)/im;
+    const unexpected = markdownFiles
+      .map((path) => relative(ROOT, path).split(sep).join("/"))
+      .filter((path) => path !== "docs/platform-support.md")
+      .filter((path) => !path.startsWith("configs/pi/"))
+      .filter((path) => installHeading.test(readFileSync(resolve(ROOT, path), "utf8")));
+    expect(unexpected).toEqual([]);
+  });
+
+  test("platform support reference is limited to Pi integrations", () => {
+    const support = readFileSync(resolve(ROOT, "docs/platform-support.md"), "utf8");
+    expect(support).toContain("Pi Coding Agent");
+    expect(support).not.toMatch(OMP_SUPPORT_PATTERN);
+    for (const target of NON_PI_INSTALL_TARGETS) {
+      expect(support.toLowerCase()).not.toContain(target.toLowerCase());
+    }
+  });
+
+  test("contributor setup does not require a non-Pi agent", () => {
+    const contributing = readFileSync(resolve(ROOT, "CONTRIBUTING.md"), "utf8");
+    const setupStart = contributing.indexOf("## Prerequisites");
+    const setupEnd = contributing.indexOf("## Development Workflow", setupStart);
+    const pullRequestStart = contributing.indexOf("## Submitting a Pull Request");
+    const pullRequestEnd = contributing.indexOf("## Quick Reference", pullRequestStart);
+    expect(setupStart).toBeGreaterThanOrEqual(0);
+    expect(setupEnd).toBeGreaterThan(setupStart);
+    expect(pullRequestStart).toBeGreaterThanOrEqual(0);
+    expect(pullRequestEnd).toBeGreaterThan(pullRequestStart);
+
+    const piWorkflows = [
+      contributing.slice(setupStart, setupEnd),
+      contributing.slice(pullRequestStart, pullRequestEnd),
+    ].join("\n");
+    for (const target of NON_PI_INSTALL_TARGETS) {
+      expect(piWorkflows.toLowerCase()).not.toContain(target.toLowerCase());
+    }
+    expect(piWorkflows).not.toMatch(OMP_SUPPORT_PATTERN);
+    expect(contributing).not.toContain("## Testing the OpenClaw Adapter");
+    expect(contributing).toContain("## For Pi developers");
   });
 });
 
@@ -1016,7 +1128,8 @@ describe("Bin entry uses cli.bundle.mjs", () => {
 
   it("server.ts ctx_doctor runs diagnostics in-process (no CLI dependency)", () => {
     const src = readFileSync(resolve(ROOT, "src", "server.ts"), "utf-8");
-    const doctorSection = src.slice(src.indexOf("ctx_doctor"), src.indexOf("ctx_upgrade"));
+    const doctorStart = src.indexOf('server.registerTool(\n  "ctx_doctor"');
+    const doctorSection = src.slice(doctorStart, src.indexOf("// ── ctx-upgrade:", doctorStart));
     // Must NOT delegate to CLI — runs server-side
     expect(doctorSection).not.toContain('node "');
     // Must run actual checks
@@ -2550,33 +2663,13 @@ describe("session-loaders.mjs fallback to build/session/*.js", () => {
   });
 });
 
-// ── SKILL.md MCP-first pattern ────────────────────────────────────────
+// ── Administrative skills are intentionally absent ───────────────────
 
-describe("SKILL.md prefers MCP tool over Bash", () => {
-  it("ctx-doctor SKILL.md prefers MCP tool over Bash", () => {
-    const skill = readFileSync(resolve(ROOT, "skills", "ctx-doctor", "SKILL.md"), "utf-8");
-    // Must mention the MCP tool
-    expect(skill).toContain("ctx_doctor");
-    expect(skill).toContain("MCP tool");
-    // MCP tool instruction must appear BEFORE the Bash fallback
-    const mcpIdx = skill.indexOf("ctx_doctor");
-    const fallbackIdx = skill.indexOf("Fallback");
-    expect(mcpIdx).toBeGreaterThan(-1);
-    expect(fallbackIdx).toBeGreaterThan(-1);
-    expect(mcpIdx).toBeLessThan(fallbackIdx);
-  });
-
-  it("ctx-upgrade SKILL.md prefers MCP tool over Bash", () => {
-    const skill = readFileSync(resolve(ROOT, "skills", "ctx-upgrade", "SKILL.md"), "utf-8");
-    // Must mention the MCP tool
-    expect(skill).toContain("ctx_upgrade");
-    expect(skill).toContain("MCP tool");
-    // MCP tool instruction must appear BEFORE the Bash fallback
-    const mcpIdx = skill.indexOf("ctx_upgrade");
-    const fallbackIdx = skill.indexOf("Fallback");
-    expect(mcpIdx).toBeGreaterThan(-1);
-    expect(fallbackIdx).toBeGreaterThan(-1);
-    expect(mcpIdx).toBeLessThan(fallbackIdx);
+describe("Administrative skills are not shipped", () => {
+  it("does not expose administrative MCP-first skills", () => {
+    for (const name of ["ctx-stats", "ctx-doctor", "ctx-upgrade", "ctx-purge", "ctx-insight"]) {
+      expect(existsSync(resolve(ROOT, "skills", name, "SKILL.md"))).toBe(false);
+    }
   });
 });
 

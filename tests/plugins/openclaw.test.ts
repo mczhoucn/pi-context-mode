@@ -603,7 +603,7 @@ describe("OpenClawPlugin", () => {
     });
   });
 
-  // ── SLICE OClaw-1: registerTool exposes 11 ctx_* MCP tools ────────
+  // ── SLICE OClaw-1: registerTool exposes agent-facing ctx_* tools ──
   describe("registerTool (SLICE OClaw-1 — sidecar MCP)", () => {
     const EXPECTED_NAMES = [
       "ctx_execute",
@@ -612,20 +612,15 @@ describe("OpenClawPlugin", () => {
       "ctx_search",
       "ctx_fetch_and_index",
       "ctx_batch_execute",
-      "ctx_stats",
-      "ctx_doctor",
-      "ctx_upgrade",
-      "ctx_purge",
-      "ctx_insight",
     ] as const;
 
-    it("registers all 11 ctx_* tools via api.registerTool", async () => {
+    it("registers only agent-facing ctx_* tools via api.registerTool", async () => {
       const mock = await createTestPlugin(join(tempDir, "register-tool"));
       const names = mock.tools.map((t) => t.name);
       for (const expected of EXPECTED_NAMES) {
         expect(names).toContain(expected);
       }
-      expect(mock.tools.length).toBeGreaterThanOrEqual(EXPECTED_NAMES.length);
+      expect(mock.tools).toHaveLength(EXPECTED_NAMES.length);
     });
 
     it("each tool definition has description + parameters schema", async () => {

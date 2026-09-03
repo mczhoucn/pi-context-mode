@@ -2306,7 +2306,7 @@ function renderNarrative5Section(args: {
   const versionStr = version ? `v${version}` : "context-mode";
   out.push(`  ${versionStr}`);
   if (version && latestVersion && latestVersion !== "unknown" && semverNewer(latestVersion, version)) {
-    out.push(`  Update available: v${version} -> v${latestVersion}  |  ctx_upgrade`);
+    out.push(`  Update available: v${version} -> v${latestVersion}  |  context-mode upgrade`);
   }
 
   // Suppress consecutive blank lines / leading blanks for tidier output —
@@ -2980,7 +2980,7 @@ export function formatReport(
     const versionStr = version ? `v${version}` : "context-mode";
     lines.push(versionStr);
     if (version && latestVersion && latestVersion !== "unknown" && semverNewer(latestVersion, version)) {
-      lines.push(`Update available: v${version} -> v${latestVersion}  |  ctx_upgrade`);
+      lines.push(`Update available: v${version} -> v${latestVersion}  |  context-mode upgrade`);
     }
     return lines.join("\n");
   }
@@ -3078,7 +3078,7 @@ export function formatReport(
   const versionStr = version ? `v${version}` : "context-mode";
   lines.push(versionStr);
   if (version && latestVersion && latestVersion !== "unknown" && latestVersion !== version) {
-    lines.push(`Update available: v${version} -> v${latestVersion}  |  ctx_upgrade`);
+    lines.push(`Update available: v${version} -> v${latestVersion}  |  context-mode upgrade`);
   }
 
   return lines.join("\n");

@@ -441,7 +441,7 @@ await runHook(async () => {
         }
       } catch { /* best effort — never block session start */ }
     }
-    // "clear" — no reset needed; ctx_purge is the only wipe mechanism
+    // "clear" — no reset needed; session data remains on disk.
   } catch (err) {
     // Session continuity is best-effort — never block session start
     try {

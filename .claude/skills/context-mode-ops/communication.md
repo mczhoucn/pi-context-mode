@@ -21,8 +21,8 @@ This lands on the `next` branch and will ship in the next release. Once it's out
 
 ```
 npm update -g context-mode
-# or for plugin users:
-/context-mode:ctx-upgrade
+# or run directly:
+context-mode upgrade
 ```
 
 Thanks for reporting this — it helped improve context-mode for everyone!
@@ -35,7 +35,7 @@ Hey @{author}, thanks for opening this!
 
 To investigate further, could you share:
 - Your platform (Claude Code / Gemini CLI / OpenCode / etc.)
-- context-mode version (`ctx doctor` or `npm list -g context-mode`)
+- context-mode version (`context-mode doctor` or `npm list -g context-mode`)
 - The exact command or action that triggers this
 - Any error messages or unexpected output
 
@@ -188,8 +188,8 @@ Let me know how you'd like to proceed!
 Please update and test:
 ```
 npm update -g context-mode
-# or for plugin users:
-/context-mode:ctx-upgrade
+# or run directly:
+context-mode upgrade
 ```
 
 Let us know if this resolves your issue!

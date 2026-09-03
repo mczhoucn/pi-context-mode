@@ -1157,12 +1157,10 @@ describe("Codex sessionstart hook script", () => {
 //      PRE_TOOL_USE_MATCHER_PATTERN in src/adapters/codex/index.ts
 //   2. configs/codex/hooks.json declares a PreCompact entry that routes
 //      to `context-mode hook codex precompact`
-//   3. README.md documents the same matcher (JSON-escaped form)
 describe("Codex matcher parity + config integrity", () => {
   const repoRoot = resolve(__dirname, "..", "..");
   const adapterSrcPath = join(repoRoot, "src", "adapters", "codex", "index.ts");
   const hooksConfigPath = join(repoRoot, "configs", "codex", "hooks.json");
-  const readmePath = join(repoRoot, "README.md");
 
   function readMatcherConstant(): string {
     const src = readFileSync(adapterSrcPath, "utf8");
@@ -1189,18 +1187,6 @@ describe("Codex matcher parity + config integrity", () => {
     expect(parsed.hooks.PreCompact).toBeDefined();
     const entry = parsed.hooks.PreCompact?.[0];
     expect(entry?.hooks?.[0]?.command).toBe("context-mode hook codex precompact");
-  });
-
-  it("README documents the same Codex PreToolUse matcher as the adapter", () => {
-    const constant = readMatcherConstant();
-    const readme = readFileSync(readmePath, "utf8");
-    const blockRe = /"PreToolUse":\s*\[\{\s*"matcher":\s*"([^"]+)"/g;
-    const documented: string[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = blockRe.exec(readme)) !== null) {
-      documented.push(m[1].replace(/\\\\/g, "\\"));
-    }
-    expect(documented).toContain(constant);
   });
 });
 

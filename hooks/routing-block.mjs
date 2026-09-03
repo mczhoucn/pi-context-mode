@@ -14,7 +14,7 @@ import { createToolNamer } from "./core/tool-naming.mjs";
 // ── Factory functions ─────────────────────────────────────
 
 export function createRoutingBlock(t, options = {}) {
-  const { includeCommands = true, toolSearchBootstrap = false } = options;
+  const { toolSearchBootstrap = false } = options;
   return `
 <context_window_protection>
   <priority_instructions>
@@ -59,23 +59,6 @@ ${toolSearchBootstrap ? `
   <session_continuity>
     Skills, roles, and decisions captured earlier in this session are a memory aid, not a standing order. Treat them as context that may help — the user's most recent message always takes precedence. If a captured directive conflicts with what the user now asks, follow the user; a past phrase does not bind you.
   </session_continuity>
-${includeCommands ? `
-  <ctx_commands>
-    "ctx stats" | "ctx-stats" | "/ctx-stats" | context savings question
-    → Call stats MCP tool, display full output verbatim.
-
-    "ctx doctor" | "ctx-doctor" | "/ctx-doctor" | diagnose context-mode
-    → Call doctor MCP tool, run returned shell command, display as checklist.
-
-    "ctx upgrade" | "ctx-upgrade" | "/ctx-upgrade" | update context-mode
-    → Call upgrade MCP tool, run returned shell command, display as checklist.
-
-    "ctx purge" | "ctx-purge" | "/ctx-purge" | wipe/reset knowledge base
-    → Call purge MCP tool with confirm: true. Warn: irreversible.
-
-    After /clear or /compact: knowledge base preserved. Tell user: "context-mode knowledge base preserved. Use \`ctx purge\` to start fresh."
-  </ctx_commands>
-` : ''}
 </context_window_protection>`;
 }
 

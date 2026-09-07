@@ -1,9 +1,10 @@
 ---
 name: ctx-index
+disable-model-invocation: true
 description: |
   Index a local file or directory into context-mode's persistent FTS5 knowledge base
   so future ctx_search calls can retrieve focused snippets without rereading raw files.
-  Trigger: /context-mode:ctx-index
+  Trigger: /context-mode:ctx-index in Claude Code or /skill:ctx-index in Pi.
 user-invocable: true
 ---
 

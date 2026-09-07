@@ -3051,22 +3051,12 @@ describe("batch_execute FS read tracking", () => {
     expect(serverSrc).toContain(".default(1)");
   });
 
-  test("tool description documents the concurrency field with positive guidance", () => {
-    // PR #683 / ADR-0002: emoji bullets replaced with prose. The standalone
-    // CONCURRENCY: section was folded into WHEN: / WHEN NOT: prose by the
-    // PR #683 WS3 canonical-structure pass so descriptions only carry the
-    // four canonical sections (WHEN / WHEN NOT / RETURNS / EXAMPLE) plus
-    // approved per-tool carve-outs (e.g. ctx_purge SCOPES / CONTRACT).
-    // The I/O-bound vs CPU-bound split and the 4-8 speedup window are still
-    // named — the PR #683 second amendment then deepened the concurrency
-    // guidance (CPU-bound stays at 1, GitHub API caps at 4 to respect rate
-    // limits, I/O-bound uses 4-8). This test pins the load-bearing concepts
-    // (I/O-bound parallelism, the 4-8 window, the keep-at-1 rule) not the
-    // exact prose so future copy-edits don't break it.
-    expect(serverSrc).toMatch(/parallelize I\/O-bound (work|calls|batches)/);
-    expect(serverSrc).toMatch(/4-8\s+(for I\/O-bound|I\/O-bound batches)/);
-    expect(serverSrc).toContain("CPU-bound or stateful");
-    expect(serverSrc).toContain("keep concurrency at 1");
+  test("concurrency schema documents positive I/O and CPU guidance", () => {
+    // Parameter-tuning details belong on the concurrency field, while the
+    // top-level description stays focused on choosing the tool.
+    expect(serverSrc).toMatch(/Use 4-8 for I\/O-bound batches/);
+    expect(serverSrc).toMatch(/Keep at 1 for CPU-bound/);
+    expect(serverSrc).toContain("or stateful commands");
   });
 });
 
@@ -3642,21 +3632,11 @@ describe("ctx_fetch_and_index batch refactor", () => {
     expect(block).toContain("ttlStr: formatFetchTtl(cacheTtlMs)");
   });
 
-  test("PARALLELIZE I/O guidance + locked requests:[] schema in description", () => {
-    // PR #683 / ADR-0002: emoji bullets replaced with prose. PR #683 WS3
-    // (canonical structure) folded the dedicated CONCURRENCY: section into
-    // the WHEN: / RETURNS: prose so the description carries only the
-    // canonical four sections (WHEN / WHEN NOT / RETURNS / EXAMPLE).
-    // PR #683 second amendment then deepened the concurrency guidance
-    // (gh API cap 4, single-writer mechanism explanation) and reframed the
-    // FTS5 serialization in more technical terms ("write phase always runs
-    // serially because SQLite is a single-writer store").
-    // This test pins the load-bearing concepts (requests:[] batch shape,
-    // 4-8 I/O window, FTS5 serial-write contract) using semantic regexes
-    // so future copy-edits don't break it.
+  test("requests and concurrency schemas document the batch shape and I/O guidance", () => {
+    // Invocation details stay on the relevant input fields instead of
+    // expanding the top-level tool-selection description.
     expect(fetchHandlerSrc).toMatch(/requests(:\s*\[|`\s*array)/);
-    expect(fetchHandlerSrc).toMatch(/4-8\s+(for|stable)/);
-    expect(fetchHandlerSrc).toMatch(/FTS5[^.]*(serializes? writes?|write phase[^.]*serial|single-writer)/);
+    expect(fetchHandlerSrc).toMatch(/Use 4-8 for I\/O-bound (?:multi-URL )?batches/);
   });
 
   test("serial-write contract: index drain is a for-loop calling indexFetched serially", () => {
@@ -5539,6 +5519,38 @@ describe("tool description style contract (#683 ADR-0002)", () => {
       .replace(/`/g, "");
   }
 
+  function templateLiteralBody(sourceBlock: string): string {
+    const start = sourceBlock.indexOf("`");
+    if (start < 0) return flattenDescription(sourceBlock);
+    for (let i = start + 1; i < sourceBlock.length; i++) {
+      if (sourceBlock[i] === "`" && sourceBlock[i - 1] !== "\\") {
+        return sourceBlock.slice(start + 1, i);
+      }
+    }
+    return flattenDescription(sourceBlock);
+  }
+
+  const AGENT_FACING_TOOLS = new Set([
+    "ctx_execute",
+    "ctx_execute_file",
+    "ctx_index",
+    "ctx_search",
+    "ctx_fetch_and_index",
+    "ctx_batch_execute",
+  ]);
+
+  test("agent-facing descriptions stay within the 1000-character prompt budget", () => {
+    const oversized = tools
+      .filter((tool) => AGENT_FACING_TOOLS.has(tool.name))
+      .map((tool) => ({
+        name: tool.name,
+        length: templateLiteralBody(tool.description).length,
+      }))
+      .filter((tool) => tool.length > 1000);
+
+    expect(oversized).toEqual([]);
+  });
+
   // Per-tool carve-outs that allow non-canonical UPPERCASE: section headers.
   // Each entry is justified inline so a future contributor reading a failure
   // understands why the carve-out exists.
@@ -6512,9 +6524,14 @@ describe("ctx_search progressive throttle observability (issue #697)", () => {
     expect(serverSrc).toMatch(/⚠ search call #\$\{searchCallCount\}/);
   });
 
-  test("ctx_search description documents the throttle policy", () => {
-    expect(serverSrc).toMatch(/RETURNS:[\s\S]{0,2000}rolling time window/i);
-    expect(serverSrc).toMatch(/CONTEXT_MODE_SEARCH_WINDOW_MS/);
+  test("ctx_search description prioritizes query batching without operator internals", () => {
+    const match = serverSrc.match(
+      /registerTool\(\s*"ctx_search"[\s\S]+?description: `([\s\S]*?)`,\s*inputSchema/,
+    );
+    expect(match).not.toBeNull();
+    const description = match![1];
+    expect(description).toContain("share one \\`queries\\` array");
+    expect(description).not.toContain("CONTEXT_MODE_SEARCH_");
   });
 });
 

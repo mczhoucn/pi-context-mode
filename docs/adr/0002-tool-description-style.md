@@ -160,7 +160,10 @@ Selection cues use the `WHEN:` / `WHEN NOT:` structure instead.
 
 ### Length
 
-Descriptions SHOULD be ≤ 1,000 characters. Hard cap 1,500.
+The six agent-facing descriptions (`ctx_execute`, `ctx_execute_file`,
+`ctx_index`, `ctx_search`, `ctx_fetch_and_index`, and `ctx_batch_execute`)
+MUST be ≤ 1,000 characters each. Other descriptions SHOULD stay within the
+same budget and have a hard cap of 1,500 characters.
 
 ### Exemptions
 

@@ -84,7 +84,7 @@ export function stripQuotedContent(cmd: string): string {
 
 /**
  * Returns true iff `segment` is a curl/wget invocation that is SAFE to allow
- * through the Pi routing block — i.e. it cannot flood the model's context
+ * through the Pi routing guard — i.e. it cannot flood the model's context
  * window because the response body is written to disk (or appended to a file)
  * and no verbose/trace flag is dumping headers to stderr.
  *
@@ -138,8 +138,8 @@ let _sessionId = "";
 // MCP bridge handle. The bridge spawns server.bundle.mjs once and
 // registers each MCP tool through pi.registerTool() so the Pi LLM can
 // actually call ctx_execute / ctx_search / etc. (#426). Pi 0.73.x has
-// no native MCP support, so without this bridge the tools are
-// invisible to the LLM and the routing block is dead weight.
+// no native MCP support, so without this bridge both the tools and
+// their Pi-native prompt metadata are invisible to the LLM.
 let _mcpBridge: BridgeHandle | null = null;
 
 /**
@@ -602,7 +602,7 @@ export default function piExtension(pi: any): void {
     }
   });
 
-  // ── 4. before_agent_start — Routing + active_memory + resume injection ─
+  // ── 4. before_agent_start — Active memory + resume injection ─
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     try {
@@ -646,20 +646,7 @@ export default function piExtension(pi: any): void {
         }
       }
 
-      const existingPrompt = String(event?.systemPrompt ?? "");
       const parts: string[] = [];
-      if (existingPrompt) parts.push(existingPrompt);
-
-      // Pi-1: Lightweight routing anchor — 7KB routing block is too heavy
-      // for Pi's context budget. Tool descriptions from pi.registerTool()
-      // already tell the model what each tool does. This anchor gives the
-      // deliberate choice (which tool for which scenario) without the full
-      // block/redirect/memory/tool-selection hierarchy.
-      parts.push(
-        "context-mode active. Hierarchy: ctx_batch_execute > ctx_execute > ctx_execute_file > ctx_search. " +
-        "Read/edit files → ctx_execute_file. Multi-command research → ctx_batch_execute. " +
-        "Web pages → ctx_fetch_and_index then ctx_search. Index docs → ctx_index."
-      );
 
       // Pi-3 + Pi-4: Always build active_memory (not just post-compact),
       // capped at 500 tokens via buildAutoInjection. Falls back to inline
@@ -714,25 +701,18 @@ export default function piExtension(pi: any): void {
         db.markResumeConsumed(_sessionId);
       }
 
-      // Store extra context (routing anchor, active_memory, resume, behavioralDirective)
-      // for injection via the 'context' hook as a message, NOT as a systemPrompt
-      // modification. Mutating systemPrompt breaks prefix prompt caching on
-      // DeepSeek/Anthropic/OpenAI because the system message sits at messages[0]
-      // and any change invalidates the entire cache chain.
-      const baseLen = existingPrompt ? 1 : 0;
-      if (parts.length > baseLen) {
-        const extraParts = parts.slice(baseLen);
-        _pendingContext = extraParts.join("\n\n");
-      } else {
-        _pendingContext = "";
-      }
+      // Store dynamic session context for injection via the `context` hook as
+      // a message, not as a systemPrompt modification. Static tool routing is
+      // owned by Pi's promptSnippet/promptGuidelines metadata. Keeping only
+      // active memory and resume data here preserves the stable prompt prefix.
+      _pendingContext = parts.join("\n\n");
     } catch {
       _pendingContext = ""; // Reset — ensure no stale data escapes
       // best effort — never break agent start
     }
   });
 
-  // ── 4a2. context — Inject active_memory + resume + behavioralDirective as message ──
+  // ── 4a2. context — Inject active memory + resume as a message ──
   // Uses the 'context' hook (like hindsight does) to append context at the END of
   // messages rather than mutating systemPrompt at the beginning. This preserves
   // prefix prompt cache for DeepSeek, Anthropic, and OpenAI.

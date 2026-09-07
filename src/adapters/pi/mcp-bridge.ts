@@ -5,11 +5,9 @@
  *   > "No MCP. Build CLI tools with READMEs (see Skills), or build an
  *   >  extension that adds MCP support."
  *
- * Without this bridge, the routing block tells the LLM to call
- * `ctx_execute`, `ctx_search`, etc. — but those tools never enter Pi's
- * tool list, so the LLM cannot reach them. context-mode then becomes a
- * pure cost on Pi (~2.5K tokens of system-prompt overhead with 0
- * actual ctx_* calls). Reported in mksglu/context-mode#426.
+ * Without this bridge, `ctx_execute`, `ctx_search`, etc. and their
+ * Pi-native prompt metadata never enter Pi's tool registry, so the LLM
+ * cannot discover or call them. Reported in mksglu/context-mode#426.
  *
  * The bridge spawns `server.bundle.mjs` as a long-lived child via stdio
  * JSON-RPC, performs the MCP handshake, calls `tools/list` once, and
@@ -142,8 +140,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 // ceiling above. Before this fix, bootstrapMCPTools propagated the
 // rejection up to extension.ts, which logged once and continued with
 // NO ctx_* tools registered — silently degrading the session for its
-// entire lifetime while the routing block kept emitting ~2.5K tokens
-// of dead instructions per turn.
+// entire lifetime with neither callable tools nor their native prompt
+// snippets and guidelines.
 //
 // Retry pattern mirrors the existing #583 single-flight respawn shape:
 // on failure, shut the prior child cleanly, sleep a short backoff so
@@ -769,6 +767,8 @@ export interface PiToolRegistration {
   name: string;
   label: string;
   description: string;
+  promptSnippet?: string;
+  promptGuidelines?: string[];
   parameters: unknown;
   renderCall?: (
     args: unknown,
@@ -888,6 +888,58 @@ export function foregroundBridgeEnv(
   if (!foreground) return baseEnv;
   return { ...baseEnv, CONTEXT_MODE_BRIDGE_IDLE_MS: "0" };
 }
+
+type PiPromptMetadata = Pick<
+  PiToolRegistration,
+  "promptSnippet" | "promptGuidelines"
+>;
+
+/**
+ * Pi-only prompt metadata for the six agent-facing context-mode tools.
+ *
+ * MCP exposes descriptions and schemas but has no fields corresponding to
+ * Pi's textual `Available tools` and `Guidelines` sections. Keep that
+ * host-specific routing policy at this adapter seam instead of duplicating it
+ * in the MCP server or injecting a synthetic user message every turn.
+ */
+const PI_TOOL_PROMPT_METADATA: Record<string, PiPromptMetadata> = {
+  ctx_batch_execute: {
+    promptSnippet: "Run and search several related command outputs in one call",
+    promptGuidelines: [
+      "Use ctx_batch_execute before ctx_execute for multiple related commands, command-based research collection, or command-output gather-and-search; use ctx_execute for one command or one sandboxed transformation.",
+    ],
+  },
+  ctx_execute: {
+    promptSnippet: "Analyze one command or data source in a sandbox",
+    promptGuidelines: [
+      "Use ctx_execute for one data-producing command or sandboxed filtering, counting, parsing, and transformation; print only the derived result.",
+    ],
+  },
+  ctx_execute_file: {
+    promptSnippet: "Analyze a file without loading its raw bytes into context",
+    promptGuidelines: [
+      "Use ctx_execute_file to analyze or summarize a file without loading its bytes; use read when exact content is needed for editing.",
+    ],
+  },
+  ctx_index: {
+    promptSnippet: "Store local or inline reference material for later search",
+    promptGuidelines: [
+      "Use ctx_index for local or inline reference material that will be queried later; use ctx_fetch_and_index for URLs.",
+    ],
+  },
+  ctx_search: {
+    promptSnippet: "Search indexed content and session memory",
+    promptGuidelines: [
+      "Use ctx_search for indexed content and session memory, batching related questions in one queries array.",
+    ],
+  },
+  ctx_fetch_and_index: {
+    promptSnippet: "Fetch web content into the index without returning raw pages",
+    promptGuidelines: [
+      "Use ctx_fetch_and_index for web pages and documentation, then query the stored content with ctx_search.",
+    ],
+  },
+};
 
 /** Result of bootstrapping the bridge. */
 export interface BridgeHandle {
@@ -1020,10 +1072,12 @@ export async function bootstrapMCPTools(
   const registered: string[] = [];
 
   for (const tool of tools) {
+    const promptMetadata = PI_TOOL_PROMPT_METADATA[tool.name];
     pi.registerTool({
       name: tool.name,
       label: tool.name,
       description: tool.description ?? "",
+      ...(promptMetadata ?? {}),
       // MCP tools/list returns JSON Schema; Pi validates against JSON
       // Schema (TypeBox is just JSON Schema with extra Symbol metadata
       // for type inference). Empty-object fallback keeps tools that

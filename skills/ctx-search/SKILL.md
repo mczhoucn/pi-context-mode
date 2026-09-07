@@ -1,9 +1,10 @@
 ---
 name: ctx-search
+disable-model-invocation: true
 description: |
   Search context-mode's persistent FTS5 knowledge base for previously indexed
   local project content, documentation, or session memory.
-  Trigger: /context-mode:ctx-search
+  Trigger: /context-mode:ctx-search in Claude Code or /skill:ctx-search in Pi.
 user-invocable: true
 ---
 

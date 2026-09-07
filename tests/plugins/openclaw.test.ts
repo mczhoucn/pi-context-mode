@@ -576,6 +576,18 @@ describe("OpenClawPlugin", () => {
       const result = promptHook!.handler() as { appendSystemContext?: string };
       expect(result?.appendSystemContext).toContain("<context_mode_skill_like_guidance");
       expect(result?.appendSystemContext).toContain("Default to context-mode for ALL commands.");
+      // Section headings are a shared extraction boundary, not just formatting.
+      const excerpt = result.appendSystemContext?.match(
+        /<context_mode_skill_like_guidance[^>]*>([\s\S]*?)<\/context_mode_skill_like_guidance>/,
+      )?.[1] ?? "";
+      expect(excerpt).toContain("## Decision Tree");
+      expect(excerpt).toContain("## Critical Rules");
+      expect(excerpt).toContain("ctx_batch_execute before ctx_execute");
+      expect(excerpt).toContain("One shell/CLI command MIGHT");
+      expect(excerpt).toContain("preserve the full output");
+      expect(excerpt).not.toContain("skill excerpt truncated");
+      expect(excerpt).toContain("[Browser workflows](./references/browser.md)");
+      expect(excerpt).not.toContain("## A. Snapshot for repeated queries");
     });
 
     it("has priority 5", async () => {

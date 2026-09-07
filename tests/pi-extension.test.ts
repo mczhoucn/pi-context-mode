@@ -725,7 +725,7 @@ describe("Pi Extension", () => {
       expect(messages[2].role).toBe("user");
 
       const trailing = String(messages[2].content);
-      expect(trailing).toContain("context-mode active");
+      expect(trailing).not.toContain("context-mode active");
       expect(trailing).toContain("session_resume");
       expect(trailing).toContain("how_to_search");
       expect(trailing).not.toContain("Stable system prompt.");
@@ -897,48 +897,39 @@ describe("Pi Extension", () => {
   });
 
   // ═══════════════════════════════════════════════════════════
-  // Slice 7: Pi-1 lightweight routing anchor injection
+  // Slice 7: Pi-native routing prompt metadata
   // ═══════════════════════════════════════════════════════════
 
-  describe("Slice 7: Routing block injection", () => {
-    it("injects lightweight routing anchor via context hook on first before_agent_start", async () => {
+  describe("Slice 7: Routing prompt ownership", () => {
+    it("does not inject a static routing message on the first agent turn", async () => {
       await registerPiExtension(api);
       await api._trigger("session_start", {}, {
         sessionManager: { getSessionFile: () => `routing-1-${Date.now()}-${Math.random()}` },
       });
 
-      // before_agent_start sets _pendingContext (was previously modifying systemPrompt)
       await api._trigger("before_agent_start", {
         systemPrompt: "Base prompt.",
       });
 
-      // context hook now injects the routing anchor as a user message at message end
       const messages: any[] = [];
       const ctxResult = await api._trigger("context", { messages });
 
-      expect(ctxResult?.messages).toBeDefined();
-      expect(ctxResult.messages.length).toBe(1);
-      expect(ctxResult.messages[0].role).toBe("user");
-      expect(ctxResult.messages[0].content).toContain("context-mode active");
-      expect(ctxResult.messages[0].content).toContain("ctx_batch_execute > ctx_execute > ctx_execute_file");
+      expect(ctxResult).toBeUndefined();
+      expect(messages).toEqual([]);
     });
 
-    it("re-injects the anchor via context hook on every subsequent call", async () => {
+    it("does not inject a static routing message on subsequent turns", async () => {
       await registerPiExtension(api);
       await api._trigger("session_start", {}, {
         sessionManager: { getSessionFile: () => `routing-2-${Date.now()}-${Math.random()}` },
       });
 
-      // Unlike Claude Code where the SessionStart hook persists context for the whole
-      // session, Pi rebuilds context fresh every turn. The anchor must reach the LLM
-      // on every call or the LLM loses MCP tool awareness after turn 1.
-      const ANCHOR = "context-mode active";
-
       for (let call = 0; call < 3; call++) {
         await api._trigger("before_agent_start", { systemPrompt: "Base." });
-        const ctxResult = await api._trigger("context", { messages: [] });
-        expect(ctxResult?.messages).toBeDefined();
-        expect(ctxResult.messages[0]?.content).toContain(ANCHOR);
+        const messages: any[] = [];
+        const ctxResult = await api._trigger("context", { messages });
+        expect(ctxResult).toBeUndefined();
+        expect(messages).toEqual([]);
       }
     });
   });
@@ -1007,10 +998,11 @@ describe("Pi Extension", () => {
       expect(ctxResult?.messages).toBeDefined();
       expect(ctxResult.messages.length).toBe(1);
       expect(ctxResult.messages[0].role).toBe("user");
-      // The always-on injection path fires every turn — the routing anchor
-      // proves context reaches the model even with compact_count 0.
+      // Dynamic session context still reaches the model with compact_count 0,
+      // but static tool routing belongs to Pi's prompt metadata.
       const content = String(ctxResult.messages[0].content);
-      expect(content).toContain("context-mode active");
+      expect(content).toContain("<session_state");
+      expect(content).not.toContain("context-mode active");
       // Issue #856 — the role MUST NOT be pinned as a standing directive.
       expect(content).not.toContain("<behavioral_directive>");
     });
@@ -1037,11 +1029,9 @@ describe("Pi Extension", () => {
       const ctxResult = await api._trigger("context", { messages: [] });
       const content = String(ctxResult?.messages?.[0]?.content ?? "");
       // Issue #856 — flooding with role prompts must NOT accumulate any
-      // behavioral_directive, and the per-turn injection must stay bounded
-      // (it is now just the routing anchor; roles are filtered out entirely).
+      // behavioral_directive, and dynamic session context stays bounded.
       expect(content).not.toContain("<behavioral_directive>");
-      // Bounded: the anchor block is small and fixed — 20 × 500-char role
-      // prompts cannot blow the per-turn injection past the cap.
+      expect(content).not.toContain("context-mode active");
       expect(content.length).toBeLessThanOrEqual(2200);
     });
   });
@@ -1076,7 +1066,7 @@ describe("Pi Extension", () => {
       expect(content).not.toContain("<behavioral_directive>");
     });
 
-    it("is surgical: drops the role directive but keeps the rest of the injection (routing anchor)", async () => {
+    it("is surgical: drops the role directive but keeps other dynamic session context", async () => {
       await registerPiExtension(api);
       const sessionFile = `role-filter-surgical-${Date.now()}-${Math.random()}`;
       await api._trigger("session_start", {
@@ -1091,12 +1081,11 @@ describe("Pi Extension", () => {
       const ctxResult = await api._trigger("context", { messages: [] });
       const content = String(ctxResult?.messages?.[0]?.content ?? "");
 
-      // Role filtered out…
+      // Role is filtered out, while independently captured session context
+      // remains available. Static routing is supplied by Pi tool metadata.
       expect(content).not.toContain("<behavioral_directive>");
-      // …but injection itself is NOT disabled — the always-on routing anchor
-      // still reaches the model every turn (filter is role-specific, not a
-      // blanket drop of the whole context injection).
-      expect(content).toContain("context-mode active");
+      expect(content).toContain("<session_state");
+      expect(content).not.toContain("context-mode active");
     });
   });
 
@@ -1138,7 +1127,7 @@ describe("Pi Extension", () => {
 // MCP bridge — bridges context-mode MCP tools into Pi's pi.registerTool()
 // surface so the LLM can actually reach ctx_execute / ctx_search / etc.
 // (#426). Pi 0.73.x has no native MCP support; without this bridge the
-// routing block tells the LLM about tools it cannot call.
+// LLM receives neither callable ctx_* tools nor their prompt metadata.
 // ────────────────────────────────────────────────────────────────────────
 
 describe("Pi MCP bridge (#426)", () => {
@@ -1315,8 +1304,16 @@ describe("Pi MCP bridge (#426)", () => {
       }
     });
 
-    it("registers the canonical ctx_* tool set", async () => {
-      const registered: Array<{ name: string; label: string; description: string; parameters: unknown; execute: Function }> = [];
+    it("registers the canonical ctx_* tool set with Pi-native prompt metadata", async () => {
+      const registered: Array<{
+        name: string;
+        label: string;
+        description: string;
+        promptSnippet?: string;
+        promptGuidelines?: string[];
+        parameters: unknown;
+        execute: Function;
+      }> = [];
       const fakePi = {
         registerTool: (tool: any) => {
           registered.push(tool);
@@ -1353,9 +1350,23 @@ describe("Pi MCP bridge (#426)", () => {
         expect(reg.name).toMatch(/^ctx_/);
         expect(reg.label).toBe(reg.name);
         expect(typeof reg.description).toBe("string");
+        expect(reg.description.length).toBeLessThanOrEqual(1000);
+        expect(reg.promptSnippet?.trim().length).toBeGreaterThan(0);
+        expect(reg.promptGuidelines?.length).toBeGreaterThan(0);
+        for (const guideline of reg.promptGuidelines ?? []) {
+          expect(guideline).toMatch(/\bctx_[a-z_]+\b/);
+        }
         expect(reg.parameters).toBeTruthy();
         expect(typeof reg.execute).toBe("function");
       }
+
+      const batchGuidance = registered
+        .find((reg) => reg.name === "ctx_batch_execute")
+        ?.promptGuidelines?.join(" ") ?? "";
+      expect(batchGuidance).toContain("multiple related commands");
+      expect(batchGuidance).toContain("command-based research collection");
+      expect(batchGuidance).toContain("command-output gather-and-search");
+      expect(batchGuidance).toMatch(/ctx_execute for one command/);
     }, 30_000);
 
     it("execute() round-trips through tools/call to the MCP server", async () => {
@@ -1442,10 +1453,9 @@ describe("Pi MCP bridge (#426)", () => {
     // `before_agent_start` to dispatch the LLM call. The lazy MCP bridge
     // bootstrap (spawn server.bundle.mjs → initialize → tools/list →
     // pi.registerTool × N) starts in that hook, so without an explicit await
-    // the LLM call would go out with an empty ctx_* tool registry and the
-    // routing block (~2.5K tokens) would become dead weight — the LLM is told
-    // to call ctx_execute / ctx_search / etc. but Pi has not yet registered
-    // them.
+    // the LLM call would go out with an empty ctx_* tool registry: neither
+    // the callable tools nor their Pi-native Available tools / Guidelines
+    // metadata would be present for that turn.
     //
     // This test pins the contract: by the time `before_agent_start`
     // resolves, the canonical ctx_* tools MUST have been registered
@@ -1845,6 +1855,61 @@ describe("Pi extension respects PiAdapter session dir (#473 round-3)", () => {
 
     delete process.env.PI_PROJECT_DIR;
     delete process.env.CLAUDE_PROJECT_DIR;
+  });
+});
+
+// ═══════════════════════════════════════════════════════════
+// Pi package skill visibility
+// ═══════════════════════════════════════════════════════════
+
+describe("Pi package skill visibility", () => {
+  it("keeps ctx-index and ctx-search as manual slash skills only", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const url = require("node:url") as typeof import("node:url");
+    const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
+    const frontmatter = (name: string) => {
+      const source = fs.readFileSync(path.join(root, "skills", name, "SKILL.md"), "utf8");
+      return source.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+    };
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    expect(pkg.pi.skills).toContain("./skills");
+    expect(frontmatter("context-mode")).not.toMatch(/^disable-model-invocation:\s*true$/m);
+    expect(frontmatter("ctx-index")).toMatch(/^disable-model-invocation:\s*true$/m);
+    expect(frontmatter("ctx-index")).toContain("/skill:ctx-index");
+    expect(frontmatter("ctx-search")).toMatch(/^disable-model-invocation:\s*true$/m);
+    expect(frontmatter("ctx-search")).toContain("/skill:ctx-search");
+  });
+
+  it("keeps the model-visible skill consistent with batch-first routing", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const url = require("node:url") as typeof import("node:url");
+    const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
+    const source = fs.readFileSync(
+      path.join(root, "skills", "context-mode", "SKILL.md"),
+      "utf8",
+    );
+    const frontmatter = source.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+
+    expect(frontmatter).toContain("ctx_batch_execute");
+    expect(source).toMatch(
+      /multiple related commands[\s\S]{0,220}ctx_batch_execute[\s\S]{0,40}before[\s\S]{0,20}ctx_execute/i,
+    );
+
+    const indexedRoute = source.indexOf("Searching already-indexed content");
+    const fetchRoute = source.indexOf("Fetching web documentation");
+    const fileRoute = source.indexOf("Reading a file to analyze");
+    const batchRoute = source.indexOf("Multiple related shell/CLI commands");
+    const singleRoute = source.indexOf("One shell/CLI command MIGHT");
+    expect(indexedRoute).toBeGreaterThan(0);
+    expect(fetchRoute).toBeGreaterThan(0);
+    expect(fileRoute).toBeGreaterThan(0);
+    expect(batchRoute).toBeGreaterThan(indexedRoute);
+    expect(batchRoute).toBeGreaterThan(fetchRoute);
+    expect(batchRoute).toBeGreaterThan(fileRoute);
+    expect(singleRoute).toBeGreaterThan(batchRoute);
   });
 });
 

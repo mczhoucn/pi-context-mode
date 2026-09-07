@@ -1,7 +1,9 @@
-# JavaScript / TypeScript Patterns for execute
+# JavaScript / TypeScript Patterns for ctx_execute
 
-Practical patterns for using `execute` with `language: javascript`.
+Practical patterns for using `ctx_execute` with `language: javascript`.
 All examples assume Node.js runtime with native fetch (Node 18+).
+These are on-demand examples, not required reading for every task.
+`timeout` values are in milliseconds.
 
 ---
 
@@ -10,7 +12,7 @@ All examples assume Node.js runtime with native fetch (Node 18+).
 ### Fetch and summarize a REST API
 
 ```javascript
-// execute: Analyze API health endpoint
+// ctx_execute: Analyze API health endpoint
 const resp = await fetch('https://api.example.com/health');
 const data = await resp.json();
 
@@ -33,12 +35,12 @@ if (data.errors && data.errors.length > 0) {
   });
 }
 ```
-> summary_prompt: "Report overall health, list any degraded services, and highlight errors"
+> intent: "Report overall health, list any degraded services, and highlight errors"
 
 ### Paginated API collection
 
 ```javascript
-// execute: Fetch all open issues from GitHub API
+// ctx_execute: Fetch all open issues from GitHub API
 const owner = 'org';
 const repo = 'project';
 let page = 1;
@@ -77,8 +79,8 @@ allIssues
   .slice(0, 10)
   .forEach(i => console.log(`  #${i.number} (${i.created_at.slice(0,10)}): ${i.title}`));
 ```
-> summary_prompt: "Summarize issue distribution by label, highlight stale issues, suggest priorities"
-> timeout_ms: 30000
+> intent: "Summarize issue distribution by label, highlight stale issues, suggest priorities"
+> timeout: 30000
 
 ---
 
@@ -110,7 +112,7 @@ if (data.references) {
   data.references.forEach(r => console.log(`  ${r.path}`));
 }
 ```
-> summary_prompt: "Report compiler strictness, module system, and any unusual configuration"
+> intent: "Report compiler strictness, module system, and any unusual configuration"
 
 ### Diff two JSON files
 
@@ -138,7 +140,7 @@ function diffObjects(obj1, obj2, path = '') {
 console.log('=== Config Diff: prod vs staging ===');
 diffObjects(a, b);
 ```
-> summary_prompt: "List all configuration differences between prod and staging environments"
+> intent: "List all configuration differences between prod and staging environments"
 
 ---
 
@@ -178,7 +180,7 @@ if (pkg.workspaces) {
   ws.forEach(w => console.log(`  ${w}`));
 }
 ```
-> summary_prompt: "Report dependency health: unpinned versions, total count, any security concerns from package names"
+> intent: "Report dependency health: unpinned versions, total count, any security concerns from package names"
 
 ### Lock file drift detection
 
@@ -210,7 +212,7 @@ if (pkg.engines) {
   Object.entries(pkg.engines).forEach(([e, v]) => console.log(`  ${e}: ${v}`));
 }
 ```
-> summary_prompt: "Report lock file health and any warnings about package management"
+> intent: "Report lock file health and any warnings about package management"
 
 ---
 
@@ -251,7 +253,7 @@ if (totalBreaking > 0) {
   console.log(`\nTotal breaking changes across all versions: ${totalBreaking}`);
 }
 ```
-> summary_prompt: "Summarize recent releases, highlight breaking changes, report release cadence"
+> intent: "Summarize recent releases, highlight breaking changes, report release cadence"
 
 ---
 
@@ -294,5 +296,5 @@ try {
   console.log(output.slice(0, 5000));
 }
 ```
-> summary_prompt: "Report test pass/fail counts, list each failing test with its error message"
-> timeout_ms: 60000
+> intent: "Report test pass/fail counts, list each failing test with its error message"
+> timeout: 60000

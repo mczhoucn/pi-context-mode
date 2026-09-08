@@ -105,7 +105,7 @@ This downstream distribution documents and validates only **Pi Coding Agent**. O
 **Context-mode settings in Pi:** security permissions are read from exactly these two files:
 
 - Project: `<project>/.pi/context-mode/settings.json`
-- Global: `~/.pi/agents/context-mode/settings.json`
+- Global: `~/.pi/agent/context-mode/settings.json`
 
 Pi does not read `.claude/settings.local.json`, `.claude/settings.json`, or the generic `~/.pi/settings.json` for context-mode permissions.
 
@@ -480,7 +480,7 @@ Context Mode enforces the same permission rules you already use — but extends 
 }
 ```
 
-For Pi, put this in `<project>/.pi/context-mode/settings.json` (or `~/.pi/agents/context-mode/settings.json` for global rules). Pi intentionally does not read `.claude/*` or `~/.pi/settings.json` as a fallback.
+For Pi, put this in `<project>/.pi/context-mode/settings.json` (or `~/.pi/agent/context-mode/settings.json` for global rules). Pi intentionally does not read `.claude/*` or `~/.pi/settings.json` as a fallback.
 
 The pattern is `Tool(what to match)` where `*` means "anything".
 
@@ -502,7 +502,7 @@ The guard is **on by default** and requires no configuration. To intentionally p
 }
 ```
 
-context-mode honors that allow rule from Pi's settings paths: `.pi/context-mode/settings.json` for the project and `~/.pi/agents/context-mode/settings.json` globally.
+context-mode honors that allow rule from Pi's settings paths: `.pi/context-mode/settings.json` for the project and `~/.pi/agent/context-mode/settings.json` globally.
 
 Reviewing the prompt: the `ctx_execute` / `ctx_execute_file` approval titles now read as code execution ("Run code in a sandbox…", "Run code over a file…") so an unfamiliar reviewer can recognise the action class even though the MCP prompt renders only the tool title and raw arguments. `ctx_execute` and `ctx_batch_execute` run arbitrary code and still inherit the process's filesystem access, so the boundary guard is a defense-in-depth layer for the *file-read* tool, not a full OS sandbox — treat approving any execution tool as approving arbitrary code, and keep host-level sandboxing enabled.
 

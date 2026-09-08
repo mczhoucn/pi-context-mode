@@ -37,7 +37,7 @@ export function resolveClaudeConfigDir(env: NodeJS.ProcessEnv = process.env): st
 
 /** Resolve the Pi-owned global context-mode settings path. */
 export function resolvePiGlobalSettingsPath(home: string = homedir()): string {
-  return resolve(home, ".pi", "agents", "context-mode", "settings.json");
+  return resolve(home, ".pi", "agent", "context-mode", "settings.json");
 }
 
 /**
@@ -79,7 +79,7 @@ export function resolveClaudeGlobalSettingsPath(
  *   2. The Claude global settings.json (defense in depth).
  *
  * Pi is the intentional exception: it returns only the context-mode-owned
- * `~/.pi/agents/context-mode/settings.json`, with no Claude or generic Pi
+ * `~/.pi/agent/context-mode/settings.json`, with no Claude or generic Pi
  * settings fallback.
  *
  * Static import of `../adapters/detect.js` is safe — detect.ts only imports

@@ -104,7 +104,7 @@ describe("resolveClaudeConfigDir — CLAUDE_CONFIG_DIR contract", () => {
   test("resolvePiGlobalSettingsPath uses the Pi agent context-mode path", () => {
     assert.equal(
       resolvePiGlobalSettingsPath(),
-      resolve(homedir(), ".pi", "agents", "context-mode", "settings.json"),
+      resolve(homedir(), ".pi", "agent", "context-mode", "settings.json"),
     );
   });
 
@@ -117,7 +117,7 @@ describe("resolveClaudeConfigDir — CLAUDE_CONFIG_DIR contract", () => {
   test("resolveAdapterGlobalSettingsPaths: Pi has no Claude fallback", () => {
     assert.deepEqual(
       resolveAdapterGlobalSettingsPaths({}, "pi", "/tmp/context-mode-pi-home"),
-      [resolve("/tmp/context-mode-pi-home", ".pi", "agents", "context-mode", "settings.json")],
+      [resolve("/tmp/context-mode-pi-home", ".pi", "agent", "context-mode", "settings.json")],
     );
   });
 

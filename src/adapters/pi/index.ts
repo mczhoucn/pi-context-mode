@@ -11,7 +11,7 @@
  *     capabilities so harness paths that walk the JSON-stdio matrix do not
  *     try to register stdio hooks for Pi.
  *   - Config root: ~/.pi/
- *   - Settings: ~/.pi/agents/context-mode/settings.json (the Pi agent's
+ *   - Settings: ~/.pi/agent/context-mode/settings.json (the Pi agent's
  *     context-mode-owned global settings; it is intentionally separate from
  *     Pi's own ~/.pi/settings.json).
  *   - Session dir: ~/.pi/context-mode/sessions/  (parallel to ~/.claude/,
@@ -119,7 +119,7 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
   // ── Configuration ──────────────────────────────────────
 
   getSettingsPath(): string {
-    return resolve(homedir(), ".pi", "agents", "context-mode", "settings.json");
+    return resolve(homedir(), ".pi", "agent", "context-mode", "settings.json");
   }
 
   getInstructionFiles(): string[] {

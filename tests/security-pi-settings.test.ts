@@ -54,7 +54,7 @@ test("reads project and global Pi files, never Claude or legacy Pi files", () =>
   const fakeHome = join(tmpBase, "home");
   const projectDir = join(tmpBase, "project");
   const piProjectDir = join(projectDir, ".pi", "context-mode");
-  const piGlobalDir = join(fakeHome, ".pi", "agents", "context-mode");
+  const piGlobalDir = join(fakeHome, ".pi", "agent", "context-mode");
   mkdirSync(piProjectDir, { recursive: true });
   mkdirSync(piGlobalDir, { recursive: true });
   mkdirSync(join(projectDir, ".claude"), { recursive: true });

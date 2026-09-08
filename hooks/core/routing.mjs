@@ -649,7 +649,7 @@ function getCodexConfigDir(env = process.env) {
 
 function getPlatformSettingsPath(platform) {
   if (platform === "codex") return resolve(getCodexConfigDir(), "settings.json");
-  if (platform === "pi") return resolve(homedir(), ".pi", "agents", "context-mode", "settings.json");
+  if (platform === "pi") return resolve(homedir(), ".pi", "agent", "context-mode", "settings.json");
   return undefined;
 }
 

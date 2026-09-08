@@ -359,7 +359,7 @@ function readSingleSettings(path: string): SecurityPolicy | null {
  *
  * Pi uses exactly two context-mode-owned tiers, in precedence order:
  *   1. <project>/.pi/context-mode/settings.json
- *   2. ~/.pi/agents/context-mode/settings.json
+ *   2. ~/.pi/agent/context-mode/settings.json
  * Other adapters retain their native project/global settings hierarchy.
  * Missing or invalid files are silently skipped.
  */
@@ -380,7 +380,7 @@ export function readBashPolicies(
 
   // Issue #451 round-3: read settings from every adapter-specific global path
   // where that host supports multiple native paths. For Pi this resolves to
-  // only ~/.pi/agents/context-mode/settings.json. When the caller passes an
+  // only ~/.pi/agent/context-mode/settings.json. When the caller passes an
   // explicit globalSettingsPath we honor it verbatim (back-compat with tests
   // and callers that already know which file to read).
   const globalPaths =

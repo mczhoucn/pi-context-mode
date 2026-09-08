@@ -69,7 +69,7 @@ returns `ok`.
 Pi reads context-mode permission rules from exactly these paths:
 
 - Project: `<project>/.pi/context-mode/settings.json`
-- Global: `~/.pi/agents/context-mode/settings.json`
+- Global: `~/.pi/agent/context-mode/settings.json`
 
 It does not fall back to `.claude/settings.local.json`,
 `.claude/settings.json`, or `~/.pi/settings.json`.

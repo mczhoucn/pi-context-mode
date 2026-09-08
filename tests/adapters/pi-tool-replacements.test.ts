@@ -68,7 +68,7 @@ beforeEach(() => { root = mkdtempSync(join(tmpdir(), "ctx-replacements-")); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); vi.restoreAllMocks(); });
 const config = (bash = false, read = false) => ({ bash: { enabled: bash }, read: { enabled: read, ...DEFAULT_READ_LIMITS } });
 const normalize = (values: unknown[]) => normalizeToolReplacements(values, vi.fn());
-const settingsFile = (home: boolean) => join(root, ".pi", ...(home ? ["agents"] : []), "context-mode", "settings.json");
+const settingsFile = (home: boolean) => join(root, ".pi", ...(home ? ["agent"] : []), "context-mode", "settings.json");
 function save(path: string, text: string) { mkdirSync(join(path, ".."), { recursive: true }); writeFileSync(path, text); }
 
 describe("Pi replacement settings", () => {

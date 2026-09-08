@@ -88,9 +88,9 @@ describe("PiAdapter — Pi platform adapter", () => {
       expect(eventsPath).not.toContain(".claude");
     });
 
-    it("settings path is ~/.pi/agents/context-mode/settings.json", () => {
+    it("settings path is ~/.pi/agent/context-mode/settings.json", () => {
       expect(adapter.getSettingsPath()).toBe(
-        resolve(homedir(), ".pi", "agents", "context-mode", "settings.json"),
+        resolve(homedir(), ".pi", "agent", "context-mode", "settings.json"),
       );
     });
 
@@ -132,7 +132,7 @@ describe("PiAdapter — Pi platform adapter", () => {
 
   describe("settings I/O", () => {
     it("readSettings returns null when file missing (graceful)", () => {
-      // Fresh fake HOME — no ~/.pi/agents/context-mode/settings.json yet
+      // Fresh fake HOME — no ~/.pi/agent/context-mode/settings.json yet
       expect(adapter.readSettings()).toBeNull();
     });
 

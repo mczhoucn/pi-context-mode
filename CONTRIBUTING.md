@@ -103,9 +103,11 @@ pnpm build
 
 ### 2. Load the project extension in Pi
 
-This repository includes `.pi/extensions/context-mode/index.ts`, which points to the compiled Pi adapter in `build/adapters/pi/extension.js`. Start Pi from the repository root after the build so it can load that project-local extension.
+This repository includes `.pi/extensions/context-mode/index.ts`, which points to the compiled Pi host entry in `build/adapters/pi/host-entry.js` (which supplies the host SDK to the injectable adapter in `extension.js`). Start Pi from the repository root after the build so it can load that project-local extension.
 
 Rebuild and restart Pi whenever extension or MCP bridge code changes.
+
+For native replacement changes, run `node tests/fixtures/pi-replacements-host-smoke.mjs` after building. This optional installed-Pi check resolves `pi` from PATH (or `PI_SMOKE_CLI`), exercises both actual loaders and native Read/Bash without model requests, and isolates settings in a temporary directory. The normal unit tests use an injected SDK and do not require Pi installed.
 
 ### 3. Verify the local build
 

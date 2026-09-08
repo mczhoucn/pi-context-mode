@@ -1369,6 +1369,25 @@ describe("Pi MCP bridge (#426)", () => {
       expect(batchGuidance).toMatch(/ctx_execute for one command/);
     }, 30_000);
 
+    it("overrides only Pi shell descriptions when the effective Bash policy is active", async () => {
+      const registered: any[] = [];
+      const { bootstrapMCPTools } = await import("../src/adapters/pi/mcp-bridge.js");
+      const handle = await bootstrapMCPTools({ registerTool: tool => { registered.push(tool); } }, mcpEntry, {
+        env: mcpEnv, routeAllShell: true,
+      });
+      bridge = handle;
+      const serverTools = await handle.client.listTools();
+      for (const name of ["ctx_execute", "ctx_batch_execute"]) {
+        const tool = registered.find(t => t.name === name);
+        expect(tool.description).toContain("side effects");
+        expect(tool.description).toContain("Native bash");
+        expect(tool.description).not.toBe(serverTools.find(t => t.name === name)?.description);
+        expect(tool.promptGuidelines.join(" ")).toContain("retry");
+      }
+      const read = registered.find(t => t.name === "ctx_execute_file");
+      expect(read.description).toBe(serverTools.find(t => t.name === "ctx_execute_file")?.description);
+    }, 30_000);
+
     it("execute() round-trips through tools/call to the MCP server", async () => {
       const registered: any[] = [];
       const fakePi = {

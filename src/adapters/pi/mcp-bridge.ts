@@ -941,6 +941,27 @@ const PI_TOOL_PROMPT_METADATA: Record<string, PiPromptMetadata> = {
   },
 };
 
+/** Only effective (successfully installed) Pi Bash replacements select this.
+ * Shared MCP descriptions and disabled Pi registrations remain unchanged.
+ */
+export function piToolPresentation(name: string, description: string, routeAllShell = false): PiPromptMetadata & { description: string } {
+  if (routeAllShell && name === "ctx_execute") {
+    return {
+      description: "Run one command or analyze data in context-mode. Use for ALL shell commands, including small output, navigation and persistent filesystem mutations. For shell set language='shell'; code may contain an explicit dependent chain such as cmd1 && cmd2. cwd selects the working directory; filesystem side effects persist. Print focused findings for large output; intent indexes output for later search. Native bash is only a recovery channel when context-mode fails. Never automatically retry a failed command: side effects may already have occurred. This is not a native Bash-equivalent terminal or a rollback sandbox.",
+      promptSnippet: "Run all single shell commands and dependent chains; analyze data",
+      promptGuidelines: ["Use ctx_execute for every single shell command or dependent chain, regardless of output size or mutations. Use ctx_batch_execute for suitable output collection/search, not dependent transactions. After failure inspect possible side effects before any retry; native bash is recovery only."],
+    };
+  }
+  if (routeAllShell && name === "ctx_batch_execute") {
+    return {
+      description: "Run several commands and search their collected outputs in context-mode. Use for suitable output collection/search regardless of output size; concurrency >1 only for independent commands. Commands can persist filesystem side effects. This is not a transaction: use ctx_execute with an explicit shell chain for commands that depend on prior success. Never automatically retry failed commands via native bash; side effects may already have occurred. Native bash is only for context-mode failure recovery.",
+      promptSnippet: "Collect and search several command outputs (not a transaction)",
+      promptGuidelines: ["Use ctx_batch_execute for suitable multi-command output collection/search, with parallelism only for independent work. Keep dependent success-gated commands together in ctx_execute, and inspect partial side effects before any retry."],
+    };
+  }
+  return { description, ...(PI_TOOL_PROMPT_METADATA[name] ?? {}) };
+}
+
 /** Result of bootstrapping the bridge. */
 export interface BridgeHandle {
   /** Names of tools registered with Pi (for diagnostics / tests). */
@@ -964,6 +985,8 @@ export interface BridgeHandle {
  */
 export interface BootstrapOptions {
   env?: NodeJS.ProcessEnv;
+  /** True only after the Pi native Bash recovery replacement is active. */
+  routeAllShell?: boolean;
   /** DI hook for tests: override the runtime resolver entirely. */
   _resolveJsRuntime?: () => string | null;
   /**
@@ -1072,12 +1095,10 @@ export async function bootstrapMCPTools(
   const registered: string[] = [];
 
   for (const tool of tools) {
-    const promptMetadata = PI_TOOL_PROMPT_METADATA[tool.name];
     pi.registerTool({
       name: tool.name,
       label: tool.name,
-      description: tool.description ?? "",
-      ...(promptMetadata ?? {}),
+      ...piToolPresentation(tool.name, tool.description ?? "", options.routeAllShell),
       // MCP tools/list returns JSON Schema; Pi validates against JSON
       // Schema (TypeBox is just JSON Schema with extra Symbol metadata
       // for type inference). Empty-object fallback keeps tools that

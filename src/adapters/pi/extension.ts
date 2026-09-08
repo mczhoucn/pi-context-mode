@@ -23,6 +23,8 @@ import type { HookInput } from "../../session/extract.js";
 import { buildResumeSnapshot } from "../../session/snapshot.js";
 import type { SessionEvent } from "../../types.js";
 import { bootstrapMCPTools, makeBridgeDiag, isForegroundSession, type BridgeHandle } from "./mcp-bridge.js";
+import { loadToolReplacementSettings } from "./tool-replacement-settings.js";
+import { installToolReplacements, type NativeToolSDK } from "./tool-replacements.js";
 import { PiAdapter } from "./index.js";
 
 // ── Pi Tool Name Mapping ─────────────────────────────────
@@ -339,9 +341,10 @@ function startPiMCPBridge(
   serverBundle: string,
   shouldKeepHandle: () => boolean,
   foreground: boolean,
+  routeAllShell: boolean,
 ): Promise<void> {
   if (existsSync(serverBundle)) {
-    _mcpBridgeReady = bootstrapMCPTools(pi, serverBundle, { foreground }).then(
+    _mcpBridgeReady = bootstrapMCPTools(pi, serverBundle, { foreground, routeAllShell }).then(
       (handle) => {
         if (shouldKeepHandle()) {
           _mcpBridge = handle;
@@ -426,12 +429,14 @@ export function resolvePiWorkspaceDir(opts: {
 // ── Extension entry point ────────────────────────────────
 
 /** Pi extension default export. Called once by Pi runtime with the extension API. */
-export default function piExtension(pi: any): void {
+export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   const buildDir = dirname(fileURLToPath(import.meta.url));
   const pluginRoot = resolve(buildDir, "..", "..", "..");
   const serverBundle = resolve(pluginRoot, "server.bundle.mjs");
   let mcpBridgeStarted = false;
   let mcpBridgeGeneration = 0;
+  let replacementsInitialized = false;
+  let effectiveReplacements = { bash: false, read: false };
   const ensureMCPBridge = (foreground: boolean): Promise<void> => {
     if (mcpBridgeStarted) return _mcpBridgeReady;
     mcpBridgeStarted = true;
@@ -441,6 +446,7 @@ export default function piExtension(pi: any): void {
       serverBundle,
       () => mcpBridgeStarted && mcpBridgeGeneration === generation,
       foreground,
+      effectiveReplacements.bash,
     );
   };
   // Issue #545 — Pi workspace resolver. PI_CONFIG_DIR is Pi's CONFIG dir
@@ -462,9 +468,29 @@ export default function piExtension(pi: any): void {
 
   const db = getOrCreateDB(projectDir);
 
+  const ensureReplacements = (ctx: any): void => {
+    if (replacementsInitialized) return;
+    replacementsInitialized = true;
+    const warn = (message: string): void => {
+      makeBridgeDiag(pi)(`[context-mode] WARNING: ${message}`);
+      try {
+        if (ctx?.hasUI && typeof ctx.ui?.notify === "function") {
+          ctx.ui.notify(`[context-mode] ${message}`, "warning");
+        } else {
+          // Print/RPC sessions may have no UI or file logger. Use Pi's public
+          // message channel rather than corrupting stdout/stderr protocols.
+          pi.sendMessage?.({ customType: "context-mode-warning", content: message, display: true }, { triggerTurn: false });
+        }
+      } catch { /* diagnostics must not break the session */ }
+    };
+    const settings = loadToolReplacementSettings(projectDir, warn);
+    effectiveReplacements = installToolReplacements(pi, projectDir, settings, nativeSDK, warn);
+  };
+
   // ── 1. session_start — Initialize session ──────────────
 
   pi.on("session_start", (_event: any, ctx: any) => {
+    ensureReplacements(ctx);
     try {
       _sessionId = deriveSessionId(ctx ?? {});
       db.ensureSession(_sessionId, projectDir);
@@ -632,6 +658,7 @@ export default function piExtension(pi: any): void {
       // buffered credential event). Do NOT add a latch here — it would guard an
       // unreachable state. (Verified against oh-my-pi: main.ts init→prompt order,
       // interactive-mode.ts uiContext wiring, executor.ts subagent hasUI:false.)
+      ensureReplacements(ctx);
       await ensureMCPBridge(isForegroundSession(ctx));
 
       if (!_sessionId) return;

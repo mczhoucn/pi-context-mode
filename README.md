@@ -109,6 +109,26 @@ This downstream distribution documents and validates only **Pi Coding Agent**. O
 
 Pi does not read `.claude/settings.local.json`, `.claude/settings.json`, or the generic `~/.pi/settings.json` for context-mode permissions.
 
+### Optional native tool replacements (Pi)
+
+Both replacements are **off by default**. To opt in, add this namespace to either context-mode settings file above (leave existing permissions intact):
+
+```json
+{
+  "toolReplacements": {
+    "bash": { "enabled": true },
+    "read": { "enabled": true, "maxLines": 300, "maxBytes": 10240 }
+  }
+}
+```
+
+- The switches are independent. Explicit project fields override global fields; omitted fields inherit global values, then defaults. Booleans must be actual booleans; limits must be positive safe integers (zero is not unlimited). An invalid explicit value in either tier disables that replacement with a warning. Malformed/unreadable settings disable both. These settings never come from Pi's generic settings, Claude, or Trellis.
+- **Bash enabled:** route every shell command through `ctx_execute`, even small output, navigation, or filesystem mutations. Use an explicit shell chain for dependent commands. `ctx_batch_execute` is for suitable output collection/search, not transactions; parallel commands must be independent. Native `bash` remains a context-mode failure-recovery channel. Inspect possible side effects before retrying: there is no automatic fallback or rollback. Existing permissions and the HTTP routing guard still apply.
+- **Read enabled:** keep native `read(path, offset?, limit?)` and images, without routing through `ctx_execute_file`. Text defaults to **300 source lines / 10,240 UTF-8 bytes**, whichever comes first. A smaller requested line limit is respected; larger/omitted limits cannot bypass caps. Offset and limit must be positive safe integers. Complete lines, CRLF, and multibyte characters are preserved. Short continuation notices are **additional metadata outside the source-text budget**; follow the displayed next offset. An oversized first line returns no source text: increase `maxBytes` or use ctx for explicitly partial analysis, not complete edit evidence. Images and native image warnings are exempt from text limits. This bounds output, not whole-file read memory.
+- **Compatibility:** verified with `@earendil-works/pi-coding-agent` 0.85.1 using its bundled and unbundled loaders. The Pi-only entry imports the host SDK statically; no second SDK is installed or bundled. Module evaluation still occurs with switches off. Other hosts/loaders are not guaranteed to resolve that SDK module. At runtime, an absent capability, unsupported schema, or another extension/SDK owning the native tool skips that replacement and warns; a skipped Bash replacement does not activate the stronger ctx policy.
+- **Standard-local profile:** opting in rebuilds native definitions with standard local defaults. It does not inherit hidden runtime shell path, command prefix, image-resize settings, or custom SDK operations, and cannot compose arbitrary third-party wrappers or guarantee against later dynamic takeovers.
+- **Apply/rollback:** reload extensions or restart Pi after changing settings. Disable a switch and reload/restart to restore the previous behavior; live toggling is not supported.
+
 **Verify:** In a Pi session, ask `ctx_execute` to print `ok`.
 
 **Routing:** Automatic. The extension registers all key lifecycle events (`tool_call`, `tool_result`, `session_start`, `session_before_compact`), providing full session continuity and routing enforcement.

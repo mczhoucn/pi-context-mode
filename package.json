@@ -23,7 +23,7 @@
   "homepage": "https://github.com/mksglu/context-mode#readme",
   "pi": {
     "extensions": [
-      "./build/adapters/pi/extension.js"
+      "./build/adapters/pi/host-entry.js"
     ],
     "skills": [
       "./skills"

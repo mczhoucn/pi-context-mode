@@ -14,7 +14,11 @@ description: >-
 
 Default to context-mode for ALL commands. Use Bash only for the whitelist below when output is guaranteed small. Apply context-mode to file analysis and potentially large tool output without waiting to be asked. When uncertain about output size, use context-mode. For files you need to edit, use the normal Read tool to obtain exact text, then the host edit/write tools.
 
-### Bash whitelist
+### Active Pi Bash policy
+
+When the registered Pi `bash` description marks it as a recovery channel, route **all shell commands** through `ctx_execute` or suitable `ctx_batch_execute`, including the operations below. Use one `ctx_execute` shell chain for dependent commands; batch is output collection/search, not a transaction. Native Bash is reserved for context-mode failure recovery. Inspect possible prior side effects before any retry; never automatically replay a failed command through Bash.
+
+### Bash whitelist (other hosts and Pi without the active replacement)
 
 Use Bash directly for these operations when their output is guaranteed small:
 - File mutations: `mkdir`, `mv`, `cp`, `rm`, `touch`, `chmod`.

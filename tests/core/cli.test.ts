@@ -45,6 +45,12 @@ const NON_PI_INSTALL_TARGETS = [
   "Zed",
 ] as const;
 
+/** Match a whole platform name, not a substring such as Zed in oversized. */
+function platformNamePattern(name: string): RegExp {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, "iu");
+}
+
 const OMP_SUPPORT_PATTERN = /\bOMP\b|Oh My Pi|\.omp\//i;
 
 describe("hook dispatch fails OPEN on a missing hook (version-skew brick fix)", () => {
@@ -213,6 +219,19 @@ describe("cli.bundle.mjs — marketplace install support", () => {
 });
 
 describe("Pi-only installation documentation", () => {
+  test("platform name matching respects boundaries, case, punctuation and literal metacharacters", () => {
+    expect("oversized tool output").not.toMatch(platformNamePattern("Zed"));
+    expect("[zED],").toMatch(platformNamePattern("Zed"));
+    expect("(CLAUDE CODE).").toMatch(platformNamePattern("Claude Code"));
+    expect("Claude Codex").not.toMatch(platformNamePattern("Claude Code"));
+    expect("preZed Zedder _Zed Zed_ Zed2 éZed").not.toMatch(platformNamePattern("Zed"));
+    const literal = "Antigravity CLI (<code>agy</code>)";
+    expect(`[${literal}]`).toMatch(platformNamePattern(literal));
+    expect("Antigravity CLI <code>agy</code>").not.toMatch(platformNamePattern(literal));
+    expect("(C++ [beta]?.)").toMatch(platformNamePattern("C++ [beta]?."));
+    expect("Ccc b").not.toMatch(platformNamePattern("C++ [beta]?."));
+  });
+
   test("package metadata advertises Pi and does not register OMP", () => {
     const pkg = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf8"));
     const advertisedMetadata = JSON.stringify({
@@ -225,7 +244,7 @@ describe("Pi-only installation documentation", () => {
     expect(advertisedMetadata).toContain("Pi Coding Agent");
     expect(advertisedMetadata).not.toMatch(OMP_SUPPORT_PATTERN);
     for (const target of NON_PI_INSTALL_TARGETS) {
-      expect(advertisedMetadata.toLowerCase()).not.toContain(target.toLowerCase());
+      expect(advertisedMetadata).not.toMatch(platformNamePattern(target));
     }
   });
 
@@ -240,7 +259,7 @@ describe("Pi-only installation documentation", () => {
     expect(installGuide).toContain("<strong>Pi Coding Agent</strong>");
     expect(installGuide).not.toMatch(OMP_SUPPORT_PATTERN);
     for (const target of NON_PI_INSTALL_TARGETS) {
-      expect(installGuide.toLowerCase()).not.toContain(target.toLowerCase());
+      expect(installGuide).not.toMatch(platformNamePattern(target));
     }
   });
 
@@ -276,7 +295,7 @@ describe("Pi-only installation documentation", () => {
     expect(support).toContain("Pi Coding Agent");
     expect(support).not.toMatch(OMP_SUPPORT_PATTERN);
     for (const target of NON_PI_INSTALL_TARGETS) {
-      expect(support.toLowerCase()).not.toContain(target.toLowerCase());
+      expect(support).not.toMatch(platformNamePattern(target));
     }
   });
 
@@ -296,7 +315,7 @@ describe("Pi-only installation documentation", () => {
       contributing.slice(pullRequestStart, pullRequestEnd),
     ].join("\n");
     for (const target of NON_PI_INSTALL_TARGETS) {
-      expect(piWorkflows.toLowerCase()).not.toContain(target.toLowerCase());
+      expect(piWorkflows).not.toMatch(platformNamePattern(target));
     }
     expect(piWorkflows).not.toMatch(OMP_SUPPORT_PATTERN);
     expect(contributing).not.toContain("## Testing the OpenClaw Adapter");

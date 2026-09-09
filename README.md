@@ -245,107 +245,63 @@ The status line reports cache performance separately: hits, data avoided, networ
 
 ## Session Continuity
 
-When the context window fills up, the agent compacts the conversation — dropping older messages to make room. Without session tracking, the model forgets which files it was editing, what tasks are in progress, what errors were resolved, and what you last asked for.
+Pi captures genuine user prompts and supported tool events in a per-project SQLite database under `~/.pi/context-mode/`. Recovery happens at **lifecycle boundaries**, not on every prompt:
 
-Context Mode captures every meaningful event during your session and persists them in a per-project SQLite database. When the conversation compacts (or you resume with `--continue`, `--resume`, or `/resume`), your working state is rebuilt automatically — the model continues from your last prompt without asking you to repeat anything.
+- **New/empty session:** no historical recovery, including other sessions in the same project.
+- **Startup/resume/reload of an existing session:** restore only its own available events using the baseline policy.
+- **Before compaction:** prepare only; cancellation/failure does not replace the existing recovery.
+- **Successful compaction:** persist one hidden `context-mode-recovery` custom message using `triggerTurn:false`. During an active turn, supported Pi hosts flush it after `turn_end`, before the next model call; no extra user prompt or agent run is needed.
+- **Subsequent model calls:** retain that message without rebuilding/appending copies. Context filtering removes superseded owned messages; an empty replacement also retires the old recovery. Other extensions' messages and tool/result ordering stay intact.
 
-> Resuming a non-latest session via `/resume <picker>` works the same way: the SessionStart hook detects the empty live-event table for the freshly issued session id and falls back to the most recent unconsumed snapshot for the project (`session_resume` table). The picker selects the conversation; context-mode rehydrates the prior working state.
+Session history is append-only. Old custom messages remain in the transcript but are not current recovery. Historical errors, environment and subagent records are evidence, **not live state, unresolved-status guarantees or authorization**. Persistent messages still use context tokens on later calls.
 
-Session continuity uses four Pi lifecycle events:
+Capture, recovery and statistics use Pi's native `sessionManager.getSessionId()` directly. Normal reopen/resume retains that ID; moving a session file can rebuild its own recovery with fresh file/branch provenance. Missing host identity or a persistent session file disables recovery. Ambiguous same-session branches/forks/tree navigation conservatively omit rebuilding from session-wide events. Pi does not need Claude's cross-ID latest-snapshot fallback for normal resume. Missing helpers or provenance fail safely rather than guessing; `/ctx-doctor` reports lifecycle-owned recovery.
 
-| Event | Role | Pi Coding Agent |
-|---|---|:---:|
-| **tool_call** | Enforces sandbox routing before execution | ✓ |
-| **tool_result** | Captures completed tool activity | ✓ |
-| **session_before_compact** | Builds the recovery snapshot | ✓ |
-| **session_start** | Restores state after compaction or resume | ✓ |
-| | **Session completeness** | **High** |
+**Legacy limitation:** old path-hash database rows have no native-ID binding and are not automatically read or migrated for recovery. Existing retention is unchanged; no migration deletes history. Native Pi transcripts and summaries remain intact. Old version-1 context-mode recovery bodies are filtered out of model context, not removed from the append-only transcript. New recovery uses version-2 provenance.
 
-Pi stores session data under `~/.pi/context-mode/`.
-<details>
-<summary><strong>What gets captured</strong></summary>
+Recovery's search hint uses `ctx_search(queries: [...], sort: "timeline")` for captured records and available indexed content. Project history may include other sessions: verify provenance. Captured records can be summaries or metadata, not full tool outputs; no `session-events` index is assumed. Genuine repeated user prompts retain each occurrence; empty resume projections send nothing, while successful compaction still persists an empty retirement marker when needed.
 
-Every tool call passes through hooks that extract structured events:
+### Optional Blackhole trimming (Pi)
 
-| Category | Events | Priority | Captured By |
-|---|---|---|---|
-| **Files** | read, edit, write, glob, grep | Critical (P1) | PostToolUse |
-| **Tasks** | create, update, complete | Critical (P1) | PostToolUse |
-| **Plans** | enter, exit, approved, rejected, file write | Critical (P1) | PostToolUse |
-| **Rules** | AGENTS.md / SYSTEM.md paths + content | Critical (P1) | SessionStart |
-| **User Prompts** | Every user message (for last-prompt restore) | Critical (P1) | UserPromptSubmit |
-| **Decisions** | User corrections, preferences ("use X instead", "don't do Y") | High (P2) | UserPromptSubmit |
-| **Git** | checkout, commit, merge, rebase, stash, push, pull, diff, status | High (P2) | PostToolUse |
-| **Errors** | Tool failures, non-zero exit codes | High (P2) | PostToolUse |
-| **Error Resolution** | Error → fix pairs detected across sequential tool calls | High (P2) | PostToolUse |
-| **Constraints** | Discovered limitations ("not supported", "permission denied") | High (P2) | PostToolUse |
-| **Blockers** | "blocked on", "waiting for", "depends on" — tracked until resolved | High (P2) | UserPromptSubmit |
-| **Rejected Approaches** | Tool calls denied by user (PreToolUse → PostToolUse marker) | High (P2) | PreToolUse |
-| **Environment** | cwd changes, venv, nvm, conda, worktree, package installs | High (P2) | PostToolUse |
-| **Agent Findings** | Completed subagent results (first 500 chars) | High (P2) | PostToolUse |
-| **Iteration Loops** | Same tool called 3+ times with similar input (retry detection) | High (P2) | PostToolUse |
-| **Latency** | Tool calls exceeding 5s (tool name + duration in ms) | Normal (P3) | PreToolUse |
-| **MCP Tools** | All `mcp__*` tool calls with usage counts | Normal (P3) | PostToolUse |
-| **Subagents** | Agent tool launches and completions | Normal (P3) | PostToolUse |
-| **Skills** | Slash command invocations | Normal (P3) | PostToolUse |
-| **External Refs** | URLs, GitHub issue references (#123), deduped | Normal (P3) | PostToolUse |
-| **Role** | Persona / behavioral directives ("act as senior engineer") | Normal (P3) | UserPromptSubmit |
-| **Intent** | Session mode classification (investigate, implement, review) | Low (P4) | UserPromptSubmit |
-| **Data** | Large user-pasted data references (>1 KB) | Low (P4) | UserPromptSubmit |
+Default: **off**. Add to context-mode's own settings (not generic Pi settings):
 
-</details>
+- Global: `~/.pi/agent/context-mode/settings.json`
+- Project: `<project>/.pi/context-mode/settings.json`
 
-<details>
-<summary><strong>How sessions survive compaction</strong></summary>
-
-```
-PreCompact fires
-  → Read all session events from SQLite
-  → Build priority-tiered XML snapshot (≤2 KB)
-  → Store snapshot in session_resume table
-
-SessionStart fires (source: "compact")
-  → Retrieve stored snapshot
-  → Write structured events file → auto-indexed into FTS5
-  → Build Session Guide with 15 categories
-  → Inject <session_knowledge> directive into context
-  → Model continues from last user prompt with full working state
+```json
+{
+  "recovery": {
+    "blackhole": { "enabled": true }
+  }
+}
 ```
 
-The snapshot is built in priority tiers — if the 2 KB budget is tight, lower-priority events (intent, MCP tool counts) are dropped first while critical state (active files, tasks, rules, decisions) is always preserved.
+Explicit project fields override global fields. Invalid explicit configuration in either tier, or malformed/unreadable settings, disables trimming with a non-disruptive warning. Missing files/fields use defaults/inheritance. Existing `toolReplacements` settings are independent.
 
-After compaction, the model receives a **Session Guide** — a structured narrative with actionable sections:
+The flag delegates a fixed set of categories to Blackhole **only after successful compaction**. Startup/resume always uses baseline. It neither detects nor configures Blackhole, performs semantic deduplication, nor makes model calls. Enable it only if you accept missing information when Blackhole omits/truncates it; even its minimal tail does not always preserve the latest request.
 
-- **Last Request** — user's last prompt, so the model continues without asking "what were we doing?"
-- **Tasks** — checkbox format with completion status (`[x]` completed, `[ ]` pending)
-- **Plans** — plan mode entries, exits, approvals, and rejections
-- **Key Decisions** — user corrections and preferences ("use X instead", "don't do Y")
-- **Files Modified** — all files touched during the session
-- **Unresolved Errors** — errors that haven't been fixed, plus error→fix resolution pairs
-- **Constraints** — discovered limitations and boundaries
-- **Blockers** — open and resolved blockers ("blocked on X", "waiting for Y")
-- **Git** — operations performed (checkout, commit, push, status)
-- **Project Rules** — CLAUDE.md / GEMINI.md / AGENTS.md paths
-- **MCP Tools Used** — tool names with call counts
-- **Subagent Tasks** — delegated work summaries + agent findings
-- **Skills Used** — slash commands invoked
-- **Rejected Approaches** — tool calls the user denied
-- **External References** — URLs and GitHub issue references
-- **Environment** — working directory, env variables, worktrees
-- **Data References** — large data pasted during the session
-- **Session Intent** — mode classification (implement, investigate, review, discuss)
-- **User Role** — behavioral directives set during the session
+| Recovery information | Startup/resume, either flag; compact flag off | Compact flag on |
+|---|---|---|
+| Historical role/persona, heuristic intent/workmode, Claude plan state | Exclude | Exclude |
+| Duplicated task snapshots | Do not add | Do not add |
+| Recorded goal / last user request | Include if captured | Exclude |
+| File activity | Include if captured | Exclude |
+| Git commits | Include if captured | Exclude |
+| Other Git operations (branch/stash/rebase/etc.) | Keep | Keep |
+| Historical tool errors | Include if captured | Exclude |
+| Skills, counts and reload hints | Include if captured | Exclude |
+| MCP invocation counts | Include if captured | Exclude |
+| Recorded decisions/constraints | Keep | Keep |
+| Project rule-file references (not full rules) | Keep | Keep |
+| Historical cwd/environment/subagent records | Keep | Keep |
+| Bounded data references and `ctx_search` hints | Keep | Keep |
 
-Detailed event data is also indexed into FTS5 for on-demand retrieval via `ctx_search()`.
+The guide reuses the shared renderer with Pi-specific projection and historical labels. Categories describe **available recorded data**, not a promise that every Pi plugin supplies it. There is no todo/goal/subagent plugin-state integration; task plugins retain ownership of their state (use their list tools). Exclusions match event categories/subtypes, not arbitrary words, and do not erase facts already included in another extension's summary.
 
-</details>
+**Verified host boundary:** Pi **0.85.1** with installed **pi-blackhole 0.5.2** inline adapter. After building, `node tests/fixtures/pi-recovery-host-smoke.mjs` checks real delivery and chained filtering in both extension orders with an isolated, deterministic, no-network summary. It does not cover live providers or the complete Blackhole observer pipeline. Optional lookup overrides: `PI_SMOKE_CLI`, `PI_BLACKHOLE_ROOT`.
 
-<details>
-<summary><strong>Pi integration details</strong></summary>
+Removing/rolling back this extension does not delete persistent custom entries; a host without the filter may expose them as ordinary history until compaction.
 
-**Pi Coding Agent** — The extension registers `tool_call`, `tool_result`, `session_start`, and `session_before_compact`. It enforces routing, captures tool activity, and restores snapshots after compaction. Tool output can be collapsed or expanded with Pi's default `Ctrl+O` keybinding.
-
-</details>
 ## Pi Platform Compatibility
 
 | Feature | Pi Coding Agent |
@@ -353,8 +309,8 @@ Detailed event data is also indexed into FTS5 for on-demand retrieval via `ctx_s
 | MCP server / native tools | Extension + MCP bridge |
 | Pre-tool enforcement | `tool_call` |
 | Post-tool capture | `tool_result` |
-| Session restore | `session_start` |
-| Pre-compaction snapshot | `session_before_compact` |
+| Session restore | `session_start`, `session_compact` |
+| Recovery preparation | `session_before_compact` (delivery only on success) |
 | Can block tools | Yes |
 | Storage root | `~/.pi/context-mode/` |
 

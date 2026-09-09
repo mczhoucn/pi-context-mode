@@ -35,7 +35,7 @@ function isPriorLeg(ev, boundary) {
 const DATA_REF_INLINE_MAX = 8; // most-recent captures rendered inline
 const DATA_REF_ENTRY_MAX = 150; // per-entry char cap before it is referenced
 
-function renderDataReferences(entries, push, searchHint) {
+function renderDataReferences(entries, push, searchHint, olderHint = "older captures kept in the sandbox") {
   const recent = entries.slice(-DATA_REF_INLINE_MAX);
   for (const ev of recent) {
     const raw = ev.data ?? "";
@@ -46,7 +46,7 @@ function renderDataReferences(entries, push, searchHint) {
   }
   const older = entries.length - recent.length;
   if (older > 0) {
-    push(`- … ${older} older captures kept in the sandbox — query ${searchHint}.`);
+    push(`- … ${older} ${olderHint} — query ${searchHint}.`);
   }
 }
 
@@ -272,11 +272,11 @@ export function writeSessionEventsFile(events, eventsPath) {
 }
 
 // ── Build session guide — actionable narrative for LLM to continue from ──
-export function buildSessionDirective(source, eventMeta, toolNamer) {
+export function buildSessionDirective(source, eventMeta, toolNamer, options = {}) {
   const { grouped, lastPrompt, fileNames, legBoundary } = eventMeta;
   const isCompact = source === "compact";
   const searchTool = toolNamer ? toolNamer("ctx_search") : "ctx_search";
-  const dataSearchHint = `${searchTool}(source: "session-events")`;
+  const dataSearchHint = options.dataSearchHint ?? `${searchTool}(source: "session-events")`;
 
   let block = `\n<session_knowledge source="${isCompact ? "compact" : "continue"}">`;
   block += `\n<session_guide>`;
@@ -290,6 +290,10 @@ export function buildSessionDirective(source, eventMeta, toolNamer) {
     block += `\n## Last Request`;
     block += `\n${displayPrompt}`;
     block += `\n`;
+  }
+
+  if (options.includeGoal && grouped.goal?.length) {
+    block += `\n## Recorded Goal\n${grouped.goal.at(-1).data.slice(0, 300)}\n`;
   }
 
   // 2. Tasks — parsed into readable format, only pending/in-progress shown
@@ -352,7 +356,7 @@ export function buildSessionDirective(source, eventMeta, toolNamer) {
 
   // 5. Errors
   if (grouped.error?.length > 0) {
-    block += `\n## Unresolved Errors`;
+    block += options.historical ? `\n## Historical Tool Errors (not necessarily unresolved)` : `\n## Unresolved Errors`;
     for (const ev of grouped.error) {
       const text = ev.data.length > 150 ? ev.data.substring(0, 147) + "..." : ev.data;
       block += `\n- ${text}`;
@@ -404,7 +408,7 @@ export function buildSessionDirective(source, eventMeta, toolNamer) {
     const currentSub = grouped.subagent.filter(ev => !isPriorLeg(ev, legBoundary));
     const priorSub = grouped.subagent.filter(ev => isPriorLeg(ev, legBoundary));
     if (currentSub.length > 0) {
-      block += `\n## Subagent Tasks`;
+      block += options.historical ? `\n## Historical Subagent Records (not live state)` : `\n## Subagent Tasks`;
       for (const ev of currentSub) block += `\n- ${fmt(ev)}`;
       block += `\n`;
     }
@@ -425,7 +429,7 @@ export function buildSessionDirective(source, eventMeta, toolNamer) {
 
   // 11. Environment
   if (grouped.env?.length > 0 || grouped.cwd?.length > 0) {
-    block += `\n## Environment`;
+    block += options.historical ? `\n## Historical Environment (not current state)` : `\n## Environment`;
     if (grouped.cwd?.length > 0) {
       block += `\ncwd: ${grouped.cwd[grouped.cwd.length - 1].data}`;
     }
@@ -438,7 +442,7 @@ export function buildSessionDirective(source, eventMeta, toolNamer) {
   // 12. Data references — #840: reference (don't inline) large tool-outputs.
   if (grouped.data?.length > 0) {
     block += `\n## Data References`;
-    renderDataReferences(grouped.data, (l) => { block += `\n${l}`; }, dataSearchHint);
+    renderDataReferences(grouped.data, (l) => { block += `\n${l}`; }, dataSearchHint, options.dataOlderHint);
     block += `\n`;
   }
 
@@ -485,13 +489,17 @@ export function buildSessionDirective(source, eventMeta, toolNamer) {
 
   // Search on demand — detailed data lives in FTS5
   block += `\n<session_search>`;
-  block += `\nDetailed session data is indexed in context-mode FTS5 (source: "session-events").`;
-  block += `\nUse ${searchTool}(queries: [...], source: "session-events") when you need specifics.`;
-  block += `\nDo NOT call ctx_index() — data is already indexed.`;
+  if (options.searchHint !== undefined) {
+    block += `\n${options.searchHint}`;
+  } else {
+    block += `\nDetailed session data is indexed in context-mode FTS5 (source: "session-events").`;
+    block += `\nUse ${searchTool}(queries: [...], source: "session-events") when you need specifics.`;
+    block += `\nDo NOT call ctx_index() — data is already indexed.`;
+  }
   block += `\n</session_search>`;
 
   // Continue instruction
-  if (lastPrompt && isCompact) {
+  if (lastPrompt && isCompact && !options.historical) {
     block += `\n<continue_from>Continue working on the last request. Do NOT ask the user to repeat themselves.</continue_from>`;
   }
 

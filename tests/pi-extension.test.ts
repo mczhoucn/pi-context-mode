@@ -12,7 +12,7 @@ import "./setup-home";
  *   2. Event extraction from tool_result
  *   3. PreToolUse routing enforcement (tool_call)
  *   4. Session lifecycle
- *   5. Resume injection (before_agent_start)
+ *   5. Lifecycle-owned recovery (prepare/success, persistent delivery, context filtering)
  *   6. Stats command (/ctx-stats)
  */
 
@@ -21,7 +21,9 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { SessionDB } from "../src/session/db.js";
+import { SessionDB, resolveSessionDbPath } from "../src/session/db.js";
+import { ContentStore } from "../src/store.js";
+import { searchAllSources } from "../src/search/unified.js";
 
 // ── Mock Pi API ──────────────────────────────────────────────
 
@@ -507,28 +509,31 @@ describe("Pi Extension", () => {
       });
     });
 
-    it("session_start uses Pi context arg for stable session ID", async () => {
+    it("session_start stats use the native Pi context session ID", async () => {
       await registerPiExtension(api);
       const sessionFile = join(tempDir, "stable-session.jsonl");
-      const expectedSessionId = createHash("sha256")
-        .update(sessionFile)
-        .digest("hex")
-        .slice(0, 8);
+      const expectedSessionId = "native-stable-session";
 
       await api._trigger(
         "session_start",
         { type: "session_start", reason: "startup" },
-        { sessionManager: { getSessionFile: () => sessionFile } },
+        { sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => expectedSessionId } },
       );
 
       const result = await api._getCommand("ctx-stats")!.handler!({});
       expect((result as { text: string }).text).toContain(
-        `Session: \`${expectedSessionId}`,
+        `Session: \`${expectedSessionId.slice(0, 8)}`,
       );
     });
 
-    it("session_before_compact builds resume snapshot", async () => {
+    it("session_before_compact only prepares and never returns a replacement or delivers", async () => {
       await registerPiExtension(api);
+      const branch = [{ id: "u1", type: "message" }];
+      const ctx = { sessionManager: {
+        getSessionFile: () => join(tempDir, "prepare.jsonl"), getSessionId: () => "prepare-native",
+        getBranch: () => branch, getEntries: () => branch,
+      } };
+      await api._trigger("session_start", { reason: "new" }, ctx);
 
       // First capture some events
       await api._trigger("tool_result", {
@@ -538,15 +543,10 @@ describe("Pi Extension", () => {
       });
 
       // Then trigger compaction
-      const result = await api._trigger("session_before_compact", {});
+      const result = await api._trigger("session_before_compact", {}, ctx);
 
-      // Should return a snapshot string or undefined if no events
-      if (result !== undefined) {
-        expect(typeof result).toBe("string");
-        if (typeof result === "string" && result.length > 0) {
-          expect(result).toContain("session_resume");
-        }
-      }
+      expect(result).toBeUndefined();
+      expect(api.sendMessage).not.toHaveBeenCalled();
     });
 
     it("session_compact increments compact counter", async () => {
@@ -559,7 +559,7 @@ describe("Pi Extension", () => {
         tool_result: "code here",
       });
 
-      // Build snapshot
+      // Prepare without replacing host compaction
       await api._trigger("session_before_compact", {});
 
       // Increment counter
@@ -590,13 +590,13 @@ describe("Pi Extension", () => {
       const sessionFile = `/fake/session-${Date.now()}.jsonl`;
       await api._trigger("session_start",
         { reason: "startup" },                               // event (1st arg)
-        { sessionManager: { getSessionFile: () => sessionFile } }, // ctx (2nd arg)
+        { sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => sessionId } }, // ctx (2nd arg)
       );
 
       // Verify the session was initialised with the file-derived ID by checking
       // that before_agent_start doesn't blow up (it needs a valid _sessionId).
       // In the new behavior, before_agent_start no longer returns systemPrompt;
-      // it stores context in _pendingContext for the context hook to inject.
+      // recovery belongs to verified lifecycle boundaries, not this hook.
       const result = await api._trigger("before_agent_start", {
         systemPrompt: "Base.",
       });
@@ -633,102 +633,56 @@ describe("Pi Extension", () => {
   });
 
   // ═══════════════════════════════════════════════════════════
-  // Slice 5: Resume injection (before_agent_start)
+  // Slice 5: Lifecycle-owned recovery
   // ═══════════════════════════════════════════════════════════
 
-  describe("Slice 5: Resume injection", () => {
-    it("delivers resume snapshot through context hook, not systemPrompt", async () => {
+  describe("Slice 5: Lifecycle-owned recovery", () => {
+    it("persists recovery at verified compact, without waiting for before_agent_start", async () => {
       await registerPiExtension(api);
-
-      // Build up session state: capture events → compact → build resume
-      await api._trigger("session_start", {
-        session_id: "resume-test-1",
-        project_dir: tempDir,
-      });
-
+      const branch: any[] = [{ id: "u1", type: "message" }];
+      const ctx = { sessionManager: {
+        getSessionFile: () => join(tempDir, "own-session.jsonl"),
+        getSessionId: () => "own-session",
+        getBranch: () => [...branch], getEntries: () => [...branch],
+      } };
+      await api._trigger("session_start", { reason: "new" }, ctx);
       await api._trigger("tool_result", {
-        tool_name: "read",
-        tool_input: { file_path: "/src/main.ts" },
-        tool_result: "import express from 'express';",
+        toolName: "read", params: { path: "/src/main.ts" }, result: "contents",
       });
-
-      await api._trigger("tool_result", {
-        tool_name: "bash",
-        tool_input: { command: "git commit -m 'feat: add express'" },
-        tool_result: "[main abc1234] feat: add express",
+      api.sendMessage.mockImplementation((message: any) => {
+        branch.push({ ...message, type: "custom_message", id: "recovery", parentId: "c1" });
       });
-
-      // Trigger compaction to build resume snapshot
-      await api._trigger("session_before_compact", {});
-      await api._trigger("session_compact", {});
-
-      // before_agent_start should prepare context without mutating systemPrompt
-      const result = await api._trigger("before_agent_start", {
-        systemPrompt: "You are a helpful assistant.",
-      });
-      expect(result?.systemPrompt ?? null).toBe(null);
-
-      // The context hook should deliver the resume as a trailing user message.
-      const messages = [{ role: "system", content: "You are a helpful assistant." }];
-      const ctxResult = await api._trigger("context", { messages });
-
-      expect(ctxResult?.messages).toBe(messages);
-      expect(messages).toHaveLength(2);
-      expect(messages[0]).toEqual({
-        role: "system",
-        content: "You are a helpful assistant.",
-      });
-      expect(messages[1].role).toBe("user");
-      expect(String(messages[1].content)).toContain("session_resume");
-      expect(String(messages[1].content)).not.toContain("You are a helpful assistant.");
+      await api._trigger("session_before_compact", {}, ctx);
+      expect(api.sendMessage).not.toHaveBeenCalled();
+      branch.push({ type: "compaction", id: "c1", parentId: "u1" });
+      await api._trigger("session_compact", { compactionEntry: { id: "c1" } }, ctx);
+      expect(api.sendMessage).toHaveBeenCalledOnce();
+      const [message, options] = api.sendMessage.mock.calls[0];
+      expect(options).toEqual({ triggerTurn: false });
+      expect(message.content).toContain("main.ts");
+      expect(message.content).toContain("session_knowledge");
+      expect(message.customType).toBe("context-mode-recovery");
+      const messages = [{ role: "user", content: "request" }, { role: "custom", ...message }];
+      for (let i = 0; i < 3; i++) {
+        expect(await api._trigger("context", { messages }, ctx)).toBeUndefined();
+        expect(messages).toHaveLength(2);
+      }
+      await api._trigger("session_compact", { compactionEntry: { id: "c1" } }, ctx);
+      expect(api.sendMessage).toHaveBeenCalledOnce();
     });
 
-    it("appends resume and active context after existing messages", async () => {
+    it("never injects historical XML when host identity cannot be verified", async () => {
       await registerPiExtension(api);
-
-      await api._trigger("session_start", {
-        session_id: "resume-test-2",
-        project_dir: tempDir,
-      });
-
+      await api._trigger("session_start", { reason: "resume" });
       await api._trigger("tool_result", {
-        tool_name: "read",
-        tool_input: { file_path: "/src/main.ts" },
-        tool_result: "export const value = 1;",
+        toolName: "read", params: { path: "/src/main.ts" }, result: "contents",
       });
-
-      await api._trigger("tool_result", {
-        tool_name: "write",
-        tool_input: { file_path: "/src/main.ts", content: "export const value = 2;" },
-        tool_result: "wrote /src/main.ts",
-      });
-
       await api._trigger("session_before_compact", {});
       await api._trigger("session_compact", {});
-
-      const result = await api._trigger("before_agent_start", {
-        systemPrompt: "Stable system prompt.",
-        prompt: "Continue with the refactor and avoid lodash.",
-      });
-      expect(result?.systemPrompt ?? null).toBe(null);
-
-      const messages = [
-        { role: "system", content: "Stable system prompt." },
-        { role: "user", content: "Continue with the refactor." },
-      ];
-      const ctxResult = await api._trigger("context", { messages });
-
-      expect(ctxResult?.messages).toBe(messages);
-      expect(messages).toHaveLength(3);
-      expect(messages[0]).toEqual({ role: "system", content: "Stable system prompt." });
-      expect(messages[1]).toEqual({ role: "user", content: "Continue with the refactor." });
-      expect(messages[2].role).toBe("user");
-
-      const trailing = String(messages[2].content);
-      expect(trailing).not.toContain("context-mode active");
-      expect(trailing).toContain("session_resume");
-      expect(trailing).toContain("how_to_search");
-      expect(trailing).not.toContain("Stable system prompt.");
+      const messages = [{ role: "user", content: "continue" }];
+      expect(await api._trigger("context", { messages })).toBeUndefined();
+      expect(messages).toHaveLength(1);
+      expect(api.sendMessage).not.toHaveBeenCalled();
     });
 
     it("returns nothing when no resume exists", async () => {
@@ -742,6 +696,137 @@ describe("Pi Extension", () => {
       if (result?.systemPrompt) {
         expect(result.systemPrompt).not.toContain("session_resume");
       }
+    });
+
+    it("native IDs isolate reused paths and rebuild own recovery after reopen or move without reading legacy hashes", async () => {
+      await registerPiExtension(api);
+      let file: string | undefined = join(tempDir, "reused.jsonl");
+      let host = "native-A";
+      let branch: any[] = [{ id: "u1", type: "message" }];
+      const ctx = { sessionManager: {
+        getSessionFile: () => file, getSessionId: () => host,
+        getBranch: () => [...branch], getEntries: () => [...branch],
+      } };
+      const legacyKey = createHash("sha256").update(file).digest("hex").slice(0, 16);
+      const db = new SessionDB({ dbPath: resolveSessionDbPath({
+        projectDir: tempDir, sessionsDir: join(process.env.HOME!, ".pi", "context-mode", "sessions"),
+      }) });
+      try {
+        db.insertEvent(legacyKey, { type: "decision", category: "decision", data: "LEGACY UNBOUND SENTINEL", priority: 1 });
+        db.insertEvent("native-A", { type: "decision", category: "decision", data: "NATIVE A SENTINEL", priority: 1 });
+        // A first opens under its native key, never the hash of its current path.
+        await api._trigger("session_start", { reason: "startup" }, ctx);
+        expect(api.sendMessage).toHaveBeenCalledOnce();
+        expect(api.sendMessage.mock.calls[0][0].content).toContain("NATIVE A SENTINEL");
+        expect(api.sendMessage.mock.calls[0][0].content).not.toContain("LEGACY UNBOUND");
+        api.sendMessage.mockClear();
+        host = "native-B";
+        await api._trigger("session_start", { reason: "startup" }, ctx);
+        expect(api.sendMessage).not.toHaveBeenCalled();
+        await api._trigger("session_before_compact", {}, ctx);
+        branch.push({ id: "c1", type: "compaction" });
+        await api._trigger("session_compact", { compactionEntry: { id: "c1" } }, ctx);
+        expect(api.sendMessage).toHaveBeenCalledOnce();
+        expect(api.sendMessage.mock.calls[0][0].content).toBe("");
+        expect(api.sendMessage.mock.calls[0][0].details.host).toBe("native-B");
+        await api._trigger("before_agent_start", { prompt: "B raw occurrence" }, ctx);
+        expect(db.getEvents("native-B").some(e => e.data === "B raw occurrence")).toBe(true);
+        expect(db.getEvents("native-A").some(e => e.data === "B raw occurrence")).toBe(false);
+        const stats = await api._getCommand("ctx-stats")!.handler!({});
+        expect(stats.text).toContain("Session: `native-B");
+        // New extension instance simulates process-local state loss; normal
+        // reopen and moved-file reopen keep the native ID, with fresh guards.
+        await api._trigger("session_shutdown", {}, ctx);
+        api = createMockPiApi(); await registerPiExtension(api);
+        host = "native-A"; branch = [{ id: "u1", type: "message" }];
+        await api._trigger("session_start", { reason: "resume" }, ctx);
+        expect(api.sendMessage).toHaveBeenCalledOnce();
+        expect(api.sendMessage.mock.calls[0][0].content).toContain("NATIVE A SENTINEL");
+        file = join(tempDir, "moved.jsonl");
+        await api._trigger("session_start", { reason: "resume" }, ctx);
+        expect(api.sendMessage).toHaveBeenCalledTimes(2);
+        const moved = api.sendMessage.mock.calls[1][0];
+        expect(moved.content).toContain("NATIVE A SENTINEL");
+        expect(moved.content).not.toContain("LEGACY UNBOUND");
+        expect(moved.details).toMatchObject({ file, host: "native-A", version: 2 });
+        file = undefined; api.sendMessage.mockClear();
+        await api._trigger("session_start", { reason: "resume" }, ctx);
+        await api._trigger("session_before_compact", {}, ctx);
+        branch.push({ id: "c2", type: "compaction" });
+        await api._trigger("session_compact", { compactionEntry: { id: "c2" } }, ctx);
+        expect(api.sendMessage).not.toHaveBeenCalled();
+        expect(db.getEvents(legacyKey).map(e => e.data)).toEqual(["LEGACY UNBOUND SENTINEL"]);
+      } finally { db.close(); await api._trigger("session_shutdown", {}, ctx); }
+    });
+
+    it("captures repeated prompt occurrences, recovers the latest, and retrieves real project history through timeline search", async () => {
+      await registerPiExtension(api);
+      const file = join(tempDir, "search-session.jsonl");
+      const key = "search-session";
+      const branch: any[] = [{ id: "u1", type: "message" }];
+      const ctx = { sessionManager: {
+        getSessionFile: () => file, getSessionId: () => "search-session",
+        getBranch: () => [...branch], getEntries: () => [...branch],
+      } };
+      await api._trigger("session_start", { reason: "new" }, ctx);
+      const prompts = ["orchid parser A", "orchid parser B", "orchid parser A", "orchid parser A"];
+      for (const prompt of prompts) await api._trigger("before_agent_start", { prompt }, ctx);
+      await api._trigger("tool_result", {
+        toolName: "read", params: { path: "/src/orchid.ts" }, result: "private full output not captured",
+      }, ctx);
+      const db = new SessionDB({ dbPath: resolveSessionDbPath({
+        projectDir: tempDir, sessionsDir: join(process.env.HOME!, ".pi", "context-mode", "sessions"),
+      }) });
+      const store = new ContentStore(join(tempDir, "content.db"));
+      try {
+        expect(db.getEvents(key).filter(e => e.type === "user_prompt").map(e => e.data)).toEqual(prompts);
+        await api._trigger("session_start", { reason: "resume" }, ctx);
+        expect(api.sendMessage).toHaveBeenCalledOnce();
+        const text = api.sendMessage.mock.calls[0][0].content;
+        expect(text).toContain(prompts.at(-1));
+        expect(text).not.toContain(prompts[1]);
+        expect(text).toContain('ctx_search(queries: [...], sort: "timeline")');
+        expect(text).not.toContain('source: "session-events"');
+        expect(text).not.toContain("already indexed");
+        expect(text).toContain("Project history may include other sessions");
+        // The same public search implementation used by ctx_search: no invented
+        // source index and no mocked DB/store. History is project-, not session-scoped.
+        db.insertEvent("other-session", { type: "decision", category: "decision", data: "orchid sibling evidence", priority: 1 },
+          "Stop", { projectDir: tempDir });
+        db.insertEvent("foreign-project", { type: "decision", category: "decision", data: "orchid foreign evidence", priority: 1 },
+          "Stop", { projectDir: join(tempDir, "foreign") });
+        const search = () => searchAllSources({ query: "orchid", limit: 50, sort: "timeline", store,
+          sessionDB: db, projectDir: tempDir });
+        const withoutIndex = search();
+        expect(withoutIndex.filter(r => r.content === prompts[0])).toHaveLength(3);
+        expect(withoutIndex.some(r => r.content.includes("orchid.ts"))).toBe(true);
+        expect(withoutIndex.some(r => r.content.includes("sibling evidence"))).toBe(true);
+        expect(withoutIndex.some(r => r.content.includes("foreign evidence"))).toBe(false);
+        expect(withoutIndex.some(r => r.content.includes("private full output"))).toBe(false);
+        store.index({ content: "orchid indexed reference", source: "reference" });
+        const merged = search();
+        expect(merged.some(r => r.source === "reference" && r.content.includes("indexed reference"))).toBe(true);
+        expect(merged.some(r => r.content === prompts[0])).toBe(true);
+      } finally {
+        store.close(); db.close();
+        await api._trigger("session_shutdown", {}, ctx);
+      }
+    });
+
+    it("records genuine raw prompts but not recovery/system notifications", async () => {
+      await registerPiExtension(api);
+      const spy = vi.spyOn(SessionDB.prototype, "insertEvent");
+      try {
+        await api._trigger("session_start", { reason: "new" }, {
+          sessionManager: { getSessionFile: () => join(tempDir, "raw-prompts.jsonl") },
+        });
+        await api._trigger("before_agent_start", { prompt: "Please explain the parser." });
+        await api._trigger("before_agent_start", { prompt: "<system-reminder>not a request</system-reminder>" });
+        await api._trigger("before_agent_start", { prompt: '<session_knowledge source="compact">old history</session_knowledge>' });
+        const raw = spy.mock.calls.filter(call => call[1].category === "user-prompt");
+        expect(raw).toHaveLength(1);
+        expect(raw[0][1].data).toBe("Please explain the parser.");
+      } finally { spy.mockRestore(); }
     });
 
     it("extracts user prompt events", async () => {
@@ -835,17 +920,14 @@ describe("Pi Extension", () => {
       process.env.TZ = "America/Los_Angeles";
 
       const sessionFile = join(tempDir, "stats-utc-session.jsonl");
-      const sessionId = createHash("sha256")
-        .update(sessionFile)
-        .digest("hex")
-        .slice(0, 16);
+      const sessionId = "native-stats-utc-session";
 
       try {
         await registerPiExtension(api);
         await api._trigger(
           "session_start",
           { type: "session_start", reason: "startup" },
-          { sessionManager: { getSessionFile: () => sessionFile } },
+          { sessionManager: { getSessionFile: () => sessionFile, getSessionId: () => sessionId } },
         );
 
         // Issue #645 — Pi extension now resolves the SessionDB file
@@ -975,7 +1057,7 @@ describe("Pi Extension", () => {
   // ═══════════════════════════════════════════════════════════
 
   describe("Slice 9: active_memory injection", () => {
-    it("injects context every turn via context hook even when compact_count is 0", async () => {
+    it("ordinary prompts never generate active memory", async () => {
       await registerPiExtension(api);
       await api._trigger("session_start", {
         sessionManager: { getSessionFile: () => `active-mem-1-${Date.now()}-${Math.random()}` },
@@ -987,27 +1069,19 @@ describe("Pi Extension", () => {
         systemPrompt: "Base.",
       });
 
-      // Second call rebuilds context (always-on, not just post-compaction).
+      // Subsequent prompts capture but never rebuild recovery.
       await api._trigger("before_agent_start", {
         systemPrompt: "Base 2.",
       });
 
-      // context hook injects the pending context as a user message
+      // context hook never appends a recovery message
       const ctxResult = await api._trigger("context", { messages: [] });
 
-      expect(ctxResult?.messages).toBeDefined();
-      expect(ctxResult.messages.length).toBe(1);
-      expect(ctxResult.messages[0].role).toBe("user");
-      // Dynamic session context still reaches the model with compact_count 0,
-      // but static tool routing belongs to Pi's prompt metadata.
-      const content = String(ctxResult.messages[0].content);
-      expect(content).toContain("<session_state");
-      expect(content).not.toContain("context-mode active");
-      // Issue #856 — the role MUST NOT be pinned as a standing directive.
-      expect(content).not.toContain("<behavioral_directive>");
+      expect(ctxResult).toBeUndefined();
+      expect(api.sendMessage).not.toHaveBeenCalled();
     });
 
-    it("caps active_memory at ≤ 2000 characters (via context hook)", async () => {
+    it("many ordinary prompts still produce no recovery message", async () => {
       await registerPiExtension(api);
       await api._trigger("session_start", {
         sessionManager: { getSessionFile: () => `active-mem-2-${Date.now()}-${Math.random()}` },
@@ -1032,7 +1106,7 @@ describe("Pi Extension", () => {
       // behavioral_directive, and dynamic session context stays bounded.
       expect(content).not.toContain("<behavioral_directive>");
       expect(content).not.toContain("context-mode active");
-      expect(content.length).toBeLessThanOrEqual(2200);
+      expect(content).toBe("");
     });
   });
 
@@ -1066,7 +1140,7 @@ describe("Pi Extension", () => {
       expect(content).not.toContain("<behavioral_directive>");
     });
 
-    it("is surgical: drops the role directive but keeps other dynamic session context", async () => {
+    it("does not replay roles or dynamic history on ordinary prompts", async () => {
       await registerPiExtension(api);
       const sessionFile = `role-filter-surgical-${Date.now()}-${Math.random()}`;
       await api._trigger("session_start", {
@@ -1084,7 +1158,7 @@ describe("Pi Extension", () => {
       // Role is filtered out, while independently captured session context
       // remains available. Static routing is supplied by Pi tool metadata.
       expect(content).not.toContain("<behavioral_directive>");
-      expect(content).toContain("<session_state");
+      expect(content).toBe("");
       expect(content).not.toContain("context-mode active");
     });
   });

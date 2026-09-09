@@ -1129,7 +1129,8 @@ export class SessionDB extends SQLiteBase {
    * Insert a session event with deduplication and FIFO eviction.
    *
    * Deduplication: skips if the same type + data_hash appears in the
-   * last DEDUP_WINDOW events for this session.
+   * last DEDUP_WINDOW events for this session. Set options.deduplicate=false
+   * for genuine occurrence records (Pi raw user prompts); defaults are unchanged.
    *
    * Eviction: if session exceeds MAX_EVENTS_PER_SESSION, evicts the
    * lowest-priority (then oldest) event.
@@ -1140,6 +1141,7 @@ export class SessionDB extends SQLiteBase {
     sourceHook: string = "PostToolUse",
     attribution?: Partial<ProjectAttribution>,
     bytes?: EventBytes,
+    options?: { deduplicate?: boolean },
   ): void {
     // SHA256-based dedup hash (first 16 hex chars = 8 bytes of entropy)
     const dataHash = createHash("sha256")
@@ -1172,8 +1174,10 @@ export class SessionDB extends SQLiteBase {
     // to prevent race conditions from concurrent hook calls.
     const transaction = this.db.transaction(() => {
       // Deduplication check: same type + data_hash in last N events
-      const dup = this.stmt(S.checkDuplicate).get(sessionId, DEDUP_WINDOW, event.type, dataHash);
-      if (dup) return;
+      if (options?.deduplicate !== false) {
+        const dup = this.stmt(S.checkDuplicate).get(sessionId, DEDUP_WINDOW, event.type, dataHash);
+        if (dup) return;
+      }
 
       // Enforce max events with FIFO eviction of lowest priority
       const countRow = this.stmt(S.getEventCount).get(sessionId) as { cnt: number };

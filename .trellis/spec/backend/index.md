@@ -20,6 +20,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Pi Tool Replacements](./pi-tool-replacements.md) | Opt-in native tool ownership, configuration, source budgets, and loader contract | Documented |
+| [Pi Recovery](./pi-recovery.md) | Lifecycle delivery, branch provenance, fixed Blackhole projection and installed-host checks | Documented |
 
 ---
 

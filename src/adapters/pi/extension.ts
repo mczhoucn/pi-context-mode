@@ -11,16 +11,18 @@
  * session_before_compact, session_compact, session_shutdown.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { resolveSessionDbPath, SessionDB } from "../../session/db.js";
 import type { ProjectAttribution } from "../../session/project-attribution.js";
 import { extractEvents, extractUserEvents, parsePiUsage, buildAgentUsageEvent } from "../../session/extract.js";
 import type { HookInput } from "../../session/extract.js";
-import { buildResumeSnapshot } from "../../session/snapshot.js";
+import { PiRecovery, renderRecovery } from "./recovery.js";
+import { readPiSessionId } from "./session-identity.js";
+import { loadRecoverySettings } from "./recovery-settings.js";
 import type { SessionEvent } from "../../types.js";
 import { bootstrapMCPTools, makeBridgeDiag, isForegroundSession, type BridgeHandle } from "./mcp-bridge.js";
 import { loadToolReplacementSettings } from "./tool-replacement-settings.js";
@@ -156,31 +158,6 @@ let _mcpBridge: BridgeHandle | null = null;
  */
 export let _mcpBridgeReady: Promise<void> = Promise.resolve();
 
-// Cached buildAutoInjection (500-token cap, prioritized).
-let _buildAutoInjection:
-  | ((events: Array<{ category: string; data: string }>) => string)
-  | null
-  | undefined = undefined;
-
-// Pending context to inject via the 'context' hook (avoiding systemPrompt mutation
-// which breaks prefix prompt cache on DeepSeek/Anthropic/OpenAI).
-// See: https://github.com/mksglu/context-mode/issues/598
-let _pendingContext = "";
-async function getAutoInjection(
-  pluginRoot: string,
-): Promise<((events: Array<{ category: string; data: string }>) => string) | null> {
-  if (_buildAutoInjection !== undefined) return _buildAutoInjection;
-  try {
-    const mod = await import(
-      pathToFileURL(join(pluginRoot, "hooks", "auto-injection.mjs")).href
-    );
-    _buildAutoInjection = mod.buildAutoInjection;
-  } catch {
-    _buildAutoInjection = null;
-  }
-  return _buildAutoInjection ?? null;
-}
-
 // ── Helpers ──────────────────────────────────────────────
 
 // Single PiAdapter instance — owns the canonical session-dir contract
@@ -229,20 +206,9 @@ function getOrCreateDB(projectDir: string): SessionDB {
   return _db;
 }
 
-/** Derive a stable session ID from Pi's session file path (SHA256, 16 hex chars). */
-function deriveSessionId(ctx: Record<string, unknown>): string {
-  try {
-    const sessionManager = ctx.sessionManager as
-      | { getSessionFile?: () => string }
-      | undefined;
-    const sessionFile = sessionManager?.getSessionFile?.();
-    if (sessionFile && typeof sessionFile === "string") {
-      return createHash("sha256").update(sessionFile).digest("hex").slice(0, 16);
-    }
-  } catch {
-    // best effort
-  }
-  return `pi-${Date.now()}`;
+/** Native host ID, or isolated bookkeeping only when the host is unavailable. */
+function deriveSessionId(ctx: { sessionManager?: { getSessionId?(): unknown } }): string {
+  return readPiSessionId(ctx) ?? `pi-ephemeral-${randomUUID()}`;
 }
 
 /**
@@ -468,37 +434,54 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
 
   const db = getOrCreateDB(projectDir);
 
+  const notifyWarning = (ctx: any, message: string): void => {
+    makeBridgeDiag(pi)(`[context-mode] WARNING: ${message}`);
+    try {
+      if (ctx?.hasUI && typeof ctx.ui?.notify === "function") {
+        ctx.ui.notify(`[context-mode] ${message}`, "warning");
+      } else {
+        pi.sendMessage?.({ customType: "context-mode-warning", content: message, display: true }, { triggerTurn: false });
+      }
+    } catch { /* diagnostics must not break the session */ }
+  };
   const ensureReplacements = (ctx: any): void => {
     if (replacementsInitialized) return;
     replacementsInitialized = true;
-    const warn = (message: string): void => {
-      makeBridgeDiag(pi)(`[context-mode] WARNING: ${message}`);
-      try {
-        if (ctx?.hasUI && typeof ctx.ui?.notify === "function") {
-          ctx.ui.notify(`[context-mode] ${message}`, "warning");
-        } else {
-          // Print/RPC sessions may have no UI or file logger. Use Pi's public
-          // message channel rather than corrupting stdout/stderr protocols.
-          pi.sendMessage?.({ customType: "context-mode-warning", content: message, display: true }, { triggerTurn: false });
-        }
-      } catch { /* diagnostics must not break the session */ }
-    };
+    const warn = (message: string): void => notifyWarning(ctx, message);
     const settings = loadToolReplacementSettings(projectDir, warn);
     effectiveReplacements = installToolReplacements(pi, projectDir, settings, nativeSDK, warn);
   };
 
+  let recoveryContext: any;
+  const recoveryWarnings = new Set<string>();
+  const recoveryWarning = (message: string): void => {
+    if (recoveryWarnings.has(message)) return;
+    recoveryWarnings.add(message);
+    notifyWarning(recoveryContext, message);
+  };
+  const recovery = new PiRecovery({
+    events: key => db.getEvents(key),
+    blackhole: () => loadRecoverySettings(projectDir, recoveryWarning),
+    render: (events, reason, blackhole) => renderRecovery(pluginRoot, events, reason, blackhole),
+    send: (message, options) => pi.sendMessage(message, options),
+    warn: recoveryWarning,
+  });
+
   // ── 1. session_start — Initialize session ──────────────
 
-  pi.on("session_start", (_event: any, ctx: any) => {
+  pi.on("session_start", async (event: any, ctx: any) => {
+    recoveryContext = ctx;
+    recoveryWarnings.clear();
     ensureReplacements(ctx);
     try {
       _sessionId = deriveSessionId(ctx ?? {});
+      await recovery.activate(event?.reason ?? "startup", ctx ?? {});
       db.ensureSession(_sessionId, projectDir);
       db.cleanupOldSessions(7);
     } catch {
       // best effort — never break session start
       if (!_sessionId) {
-        _sessionId = `pi-${Date.now()}`;
+        _sessionId = `pi-ephemeral-${randomUUID()}`;
       }
     }
   });
@@ -628,11 +611,10 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
     }
   });
 
-  // ── 4. before_agent_start — Active memory + resume injection ─
+  // ── 4. before_agent_start — Bootstrap and genuine prompt capture ─
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     try {
-      _pendingContext = ""; // Reset — will be filled below if events exist
       // Lazily start and await the MCP bridge only when Pi is about to
       // dispatch a real agent turn. This is the non-brittle #534/#809 guard:
       // help/version/package/config CLI paths may load the extension, but they
@@ -666,97 +648,26 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
       const prompt = String(event?.prompt ?? "");
 
       // Extract user events from the prompt text
-      if (prompt) {
+      if (prompt.trim() && !/^<(?:task-notification|system-reminder|context_guidance|tool-result|session_knowledge)(?:[ >])/.test(prompt.trim())) {
+        db.insertEvent(_sessionId, { type: "user_prompt", category: "user-prompt", data: prompt, priority: 1 }, "UserPromptSubmit", _attribution, undefined, { deduplicate: false });
         const userEvents = extractUserEvents(prompt);
         for (const ev of userEvents) {
           db.insertEvent(_sessionId, ev as SessionEvent, "UserPromptSubmit", _attribution);
         }
       }
 
-      const parts: string[] = [];
-
-      // Pi-3 + Pi-4: Always build active_memory (not just post-compact),
-      // capped at 500 tokens via buildAutoInjection. Falls back to inline
-      // budget loop if the helper is unavailable.
-      //
-      // Issue #856 — do NOT re-inject `role` as a standing behavioral_directive
-      // on every turn. A casual past phrase that classified as a role would
-      // otherwise be pinned and replayed each turn ("since you said 'that's
-      // fine for now', I'll leave it"), producing a do-nothing loop. Defense in
-      // depth: even if a stale `role` event exists (from an older build, or a
-      // genuine persona the user has since moved past), it must not become an
-      // inescapable per-turn standing order. Role events stay in the DB and
-      // remain queryable via ctx_search(source: "session-events"); intent,
-      // skills, decisions, and the resume snapshot are unaffected.
-      const activeEvents = db
-        .getEvents(_sessionId, {
-          minPriority: 3,
-          limit: 50,
-        })
-        .filter((e: any) => String(e.category ?? "") !== "role");
-      if (activeEvents.length > 0) {
-        const buildAuto = await getAutoInjection(pluginRoot);
-        let memoryContext = "";
-        if (buildAuto) {
-          memoryContext = buildAuto(
-            activeEvents.map((e: any) => ({
-              category: String(e.category ?? ""),
-              data: String(e.data ?? ""),
-            })),
-          );
-        }
-        // Fallback (or if helper produced empty output): inline 500-token cap.
-        if (!memoryContext) {
-          const memoryLines: string[] = ["<active_memory>"];
-          let budget = 2000; // ~500 tokens at 4 chars/token
-          for (const ev of activeEvents) {
-            const line = `  <event type="${ev.type}" category="${ev.category}">${ev.data}</event>`;
-            if (line.length > budget) break;
-            memoryLines.push(line);
-            budget -= line.length;
-          }
-          memoryLines.push("</active_memory>");
-          if (memoryLines.length > 2) memoryContext = memoryLines.join("\n");
-        }
-        if (memoryContext) parts.push(memoryContext);
-      }
-
-      // Resume snapshot (only when present and unconsumed).
-      const resume = db.getResume(_sessionId);
-      if (resume && !resume.consumed && resume.snapshot) {
-        parts.push(resume.snapshot);
-        db.markResumeConsumed(_sessionId);
-      }
-
-      // Store dynamic session context for injection via the `context` hook as
-      // a message, not as a systemPrompt modification. Static tool routing is
-      // owned by Pi's promptSnippet/promptGuidelines metadata. Keeping only
-      // active memory and resume data here preserves the stable prompt prefix.
-      _pendingContext = parts.join("\n\n");
     } catch {
-      _pendingContext = ""; // Reset — ensure no stale data escapes
       // best effort — never break agent start
     }
   });
 
-  // ── 4a2. context — Inject active memory + resume as a message ──
-  // Uses the 'context' hook (like hindsight does) to append context at the END of
-  // messages rather than mutating systemPrompt at the beginning. This preserves
-  // prefix prompt cache for DeepSeek, Anthropic, and OpenAI.
-  pi.on("context", (event: any) => {
-    try {
-      if (!_pendingContext) return;
-      const ctx = _pendingContext;
-      _pendingContext = "";
-      event.messages.push({
-        role: "user",
-        content: ctx,
-      });
-      return { messages: event.messages };
-    } catch {
-      // best effort — never break context assembly
-    }
+  // Persistent delivery is lifecycle-owned; provider calls only project history.
+  pi.on("context", (event: any, ctx: any) => {
+    const messages = recovery.filter(event.messages, ctx ?? {});
+    if (messages.length !== event.messages.length) return { messages };
   });
+  pi.on("session_tree", () => recovery.reset());
+  pi.on("session_fork", () => recovery.reset());
 
   // ── 4b. before_provider_response — capture response metadata ───
   // Pi-2: Register the missing event so providers can record latency,
@@ -828,40 +739,24 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
     }
   });
 
-  // ── 5. session_before_compact — Build resume snapshot ──
-
-  pi.on("session_before_compact", () => {
-    try {
-      if (!_sessionId) return;
-
-      const allEvents = db.getEvents(_sessionId);
-      if (allEvents.length === 0) return;
-
-      const stats = db.getSessionStats(_sessionId);
-      const snapshot = buildResumeSnapshot(allEvents, {
-        compactCount: (stats?.compact_count ?? 0) + 1,
-      });
-
-      db.upsertResume(_sessionId, snapshot, allEvents.length);
-    } catch {
-      // best effort — never break compaction
-    }
+  pi.on("session_before_compact", (_event: any, ctx: any) => {
+    recoveryContext = ctx;
+    recovery.prepare(ctx ?? {});
   });
-
-  // ── 6. session_compact — Increment compact counter ─────
-
-  pi.on("session_compact", () => {
+  pi.on("session_compact_failed", () => recovery.failed());
+  pi.on("session_compact", async (event: any, ctx: any) => {
     try {
-      if (!_sessionId) return;
-      db.incrementCompactCount(_sessionId);
-    } catch {
-      // best effort
-    }
+      recoveryContext = ctx;
+      await recovery.compact(event?.compactionEntry?.id, ctx ?? {});
+      if (_sessionId) db.incrementCompactCount(_sessionId);
+    } catch { /* best effort */ }
   });
 
   // ── 7. session_shutdown — Cleanup old sessions ─────────
 
   pi.on("session_shutdown", async () => {
+    recovery.reset();
+    recoveryContext = undefined;
     try {
       if (_db) {
         _db.cleanupOldSessions(7);
@@ -936,10 +831,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
           const eventCount = _db.getEventCount(_sessionId);
           lines.push(`- Events: ${eventCount}`);
           lines.push(`- Compactions: ${stats?.compact_count ?? 0}`);
-          const resume = _db.getResume(_sessionId);
-          lines.push(
-            `- Resume snapshot: ${resume ? (resume.consumed ? "consumed" : "available") : "none"}`,
-          );
+          lines.push("- Recovery: lifecycle-owned persistent Pi messages (legacy snapshots are not replayed)");
         } catch {
           lines.push("- DB query error");
         }

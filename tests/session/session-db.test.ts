@@ -1434,3 +1434,17 @@ describe("session-resume category", () => {
     expect(events[0].data).toContain("10");
   });
 });
+
+
+describe("per-insert occurrence preservation", () => {
+  test("opt-out preserves A/B/A and consecutive equal prompts, default still deduplicates", () => {
+    const db = createTestDB();
+    for (const data of ["A", "B", "A", "A"]) {
+      const ev = makeEvent({ type: "user_prompt", category: "user-prompt", data });
+      db.insertEvent("occurrences", ev, "UserPromptSubmit", undefined, undefined, { deduplicate: false });
+      db.insertEvent("default", ev, "UserPromptSubmit");
+    }
+    expect(db.getEvents("occurrences").map(e => e.data)).toEqual(["A", "B", "A", "A"]);
+    expect(db.getEvents("default").map(e => e.data)).toEqual(["A", "B"]);
+  });
+});

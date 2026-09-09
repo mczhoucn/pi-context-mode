@@ -1,0 +1,51 @@
+
+<session_knowledge source="compact">
+<session_guide>
+## Key Decisions
+- decision-evidence
+
+## Files Modified
+file-evidence
+
+## Unresolved Errors
+- error-evidence
+
+## Git
+commit-only-evidence, branch-named-commit
+
+## Project Rules
+rule-evidence
+
+## MCP Tools Used
+mcp-evidence(1)
+
+## Subagent Tasks
+- subagent-evidence
+
+## Skills Used
+skill-evidence
+
+## Environment
+cwd: cwd-evidence
+env-evidence
+
+## Data References
+- data-evidence
+
+## Session Intent
+intent-evidence
+
+## User Role
+role-evidence
+
+## Plan Mode
+- Status: COMPLETED
+- The plan has been executed. Do NOT re-enter plan mode or re-propose the same plan.
+
+</session_guide>
+<session_search>
+Detailed session data is indexed in context-mode FTS5 (source: "session-events").
+Use ctx_search(queries: [...], source: "session-events") when you need specifics.
+Do NOT call ctx_index() — data is already indexed.
+</session_search>
+</session_knowledge>

@@ -38,6 +38,19 @@ describe("context-mode progressive disclosure contract", () => {
     ]) expect(body).toMatch(rule);
   });
 
+  it("prefers available CLI tools and leaves custom-code language selection open", () => {
+    expect(body).toContain("Prefer shell with available CLI tools");
+    for (const tool of ["git", "curl", "rg", "fd", "jq", "gh", "yq", "uv"]) {
+      expect(body).toMatch(new RegExp(`\\b${tool}\\b`));
+    }
+    expect(body).toContain("Write custom code when tools are unsuitable");
+    expect(body).toContain("hard to express clearly in shell");
+    expect(body).toContain("any suitable supported language");
+    expect(body).toContain('Use `language: "shell"` in `ctx_execute`');
+    expect(body).toContain("`ctx_batch_execute` accepts shell commands");
+    expect(body).not.toMatch(/Choose JavaScript\/TypeScript for HTTP\/JSON|Python for CSV\/statistics/);
+  });
+
   it("loads references only on explicit task branches with resolvable links", () => {
     expect(body).toMatch(/Read only the reference matching the current task/i);
     expect(body).toMatch(/Before.*browser.*\[.*\]\(\.\/references\/browser\.md\)/i);

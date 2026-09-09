@@ -23,6 +23,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { detectRuntimes } from "../../runtime.js";
+import { CLI_FIRST_GUIDANCE } from "../../tool-guidance.js";
 import { foreignWorkspaceEnv, foreignIdentificationEnv } from "../detect.js";
 
 interface PendingRequest {
@@ -947,14 +948,14 @@ const PI_TOOL_PROMPT_METADATA: Record<string, PiPromptMetadata> = {
 export function piToolPresentation(name: string, description: string, routeAllShell = false): PiPromptMetadata & { description: string } {
   if (routeAllShell && name === "ctx_execute") {
     return {
-      description: "Run one command or analyze data in context-mode. Use for ALL shell commands, including small output, navigation and persistent filesystem mutations. For shell set language='shell'; code may contain an explicit dependent chain such as cmd1 && cmd2. cwd selects the working directory; filesystem side effects persist. Print focused findings for large output; intent indexes output for later search. Native bash is only a recovery channel when context-mode fails. Never automatically retry a failed command: side effects may already have occurred. This is not a native Bash-equivalent terminal or a rollback sandbox.",
+      description: CLI_FIRST_GUIDANCE + " Run one command or analyze data in context-mode. Use for ALL shell commands, including small output, navigation and persistent filesystem mutations. For shell set language='shell'; code may contain an explicit dependent chain such as cmd1 && cmd2. cwd selects the working directory; filesystem side effects persist. Print focused findings for large output; intent indexes output for later search. Native bash is only a recovery channel when context-mode fails. Never automatically retry a failed command: side effects may already have occurred. This is not a native Bash-equivalent terminal or a rollback sandbox.",
       promptSnippet: "Run all single shell commands and dependent chains; analyze data",
       promptGuidelines: ["Use ctx_execute for every single shell command or dependent chain, regardless of output size or mutations. Use ctx_batch_execute for suitable output collection/search, not dependent transactions. After failure inspect possible side effects before any retry; native bash is recovery only."],
     };
   }
   if (routeAllShell && name === "ctx_batch_execute") {
     return {
-      description: "Run several commands and search their collected outputs in context-mode. Use for suitable output collection/search regardless of output size; concurrency >1 only for independent commands. Commands can persist filesystem side effects. This is not a transaction: use ctx_execute with an explicit shell chain for commands that depend on prior success. Never automatically retry failed commands via native bash; side effects may already have occurred. Native bash is only for context-mode failure recovery.",
+      description: CLI_FIRST_GUIDANCE + " For custom-code analysis, use ctx_execute. Run several shell commands and search their collected outputs in context-mode. Use for suitable output collection/search regardless of output size; concurrency >1 only for independent commands. Commands can persist filesystem side effects. This is not a transaction: use ctx_execute with an explicit shell chain for commands that depend on prior success. Never automatically retry failed commands via native bash; side effects may already have occurred. Native bash is only for context-mode failure recovery.",
       promptSnippet: "Collect and search several command outputs (not a transaction)",
       promptGuidelines: ["Use ctx_batch_execute for suitable multi-command output collection/search, with parallelism only for independent work. Keep dependent success-gated commands together in ctx_execute, and inspect partial side effects before any retry."],
     };

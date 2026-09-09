@@ -12,7 +12,7 @@ description: >-
 
 ## MANDATORY RULE
 
-Default to context-mode for ALL commands. Use Bash only for the whitelist below when output is guaranteed small. Apply context-mode to file analysis and potentially large tool output without waiting to be asked. When uncertain about output size, use context-mode. For files you need to edit, use the normal Read tool to obtain exact text, then the host edit/write tools.
+Default to context-mode for ALL commands, file analysis, and large or uncertain tool output. Use Bash only for guaranteed-small whitelist operations below. For files you need to edit, use the normal Read tool for exact text, then host edit/write tools.
 
 ### Active Pi Bash policy
 
@@ -58,11 +58,11 @@ One shell/CLI command MIGHT produce large output, or one data transformation?
 
 ## Critical Rules
 
-- For one-shot questions, analyze in code and print findings, not raw data dumps. Include IDs, file paths, line numbers, and exact values that support the answer, not just counts. Only printed output becomes available to the conversation/index.
+- For one-shot questions, print findings, not raw data dumps: include supporting IDs, file paths, line numbers, and exact values, not just counts. Only printed output enters the conversation/index.
 - For later exploratory searches, preserve the full output in the capture/index before narrowing with `ctx_search`. Truncating a command with `head` before capture permanently drops evidence; one-shot computed answers are a different mode.
-- Save large tool results with `filename` when supported, then pass the saved path to `ctx_index(path: ...)` or `ctx_execute_file`. Paths must be accessible to context-mode and permitted by the host; a remote browser file may need transfer first.
-- Use `ctx_index(content: ...)` only for small inline text you compose. Reuse MCP output already in context directly; re-indexing its full text as a tool argument duplicates the cost. A saved/indexed copy is useful only if later retrieval is needed, not to undo an earlier context load.
-- Choose JavaScript/TypeScript for HTTP/JSON, Python for CSV/statistics, and shell for native commands/pipelines. For one existing file, prefer `ctx_execute_file` with `FILE_CONTENT` over a raw file read.
+- Save large tool results with `filename`, then pass the path to `ctx_index(path: ...)` or `ctx_execute_file`. Paths must be accessible and host-permitted; transfer remote files first.
+- Use `ctx_index(content: ...)` only for small inline text you compose. Reuse MCP output already in context directly; passing its full text again duplicates the cost. Save/index copies only for later retrieval, not to undo an earlier context load.
+- Prefer shell with available CLI tools (e.g. git, curl, rg, fd, jq, gh, yq, uv) when they solve the task clearly and reliably. Write custom code when tools are unsuitable or complex analysis, transformations, or control flow are hard to express clearly in shell; choose any suitable supported language. Use `language: "shell"` in `ctx_execute`; `ctx_batch_execute` accepts shell commands. For one existing file, prefer `ctx_execute_file` with `FILE_CONTENT` over a raw file read.
 - Use the registered schemas for parameters. `intent` focuses retrieval from captured output; `timeout` is in milliseconds. Preserve test/build exit status when reporting results. Use batch concurrency only for independent I/O; keep CPU-heavy, stateful, or ordered work serial.
 
 ## Search and external documentation

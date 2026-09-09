@@ -1,0 +1,2 @@
+/** Shared language-selection guidance for MCP tools and Pi description overrides. */
+export const CLI_FIRST_GUIDANCE = "Prefer shell with available CLI tools (e.g. git, curl, rg, fd, jq, gh, yq, uv) when they solve the task clearly and reliably. Write custom code when tools are unsuitable or complex analysis, transformations, or control flow are hard to express clearly in shell; choose any suitable supported language.";

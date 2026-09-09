@@ -1434,6 +1434,17 @@ describe("Pi MCP bridge (#426)", () => {
         expect(typeof reg.execute).toBe("function");
       }
 
+      for (const name of ["ctx_execute", "ctx_batch_execute"]) {
+        const tool = registered.find((reg) => reg.name === name)!;
+        expect(tool.description).toContain("Prefer shell with available CLI tools");
+        expect(tool.description).toContain("Write custom code when tools are unsuitable");
+        expect(tool.description).toContain("hard to express clearly in shell");
+        expect(tool.description).toContain("any suitable supported language");
+        expect(tool.description).not.toMatch(/javascript|typescript|python/i);
+      }
+      expect(registered.find((reg) => reg.name === "ctx_execute")?.description)
+        .toContain('language: "shell"');
+
       const batchGuidance = registered
         .find((reg) => reg.name === "ctx_batch_execute")
         ?.promptGuidelines?.join(" ") ?? "";
@@ -1455,6 +1466,12 @@ describe("Pi MCP bridge (#426)", () => {
         const tool = registered.find(t => t.name === name);
         expect(tool.description).toContain("side effects");
         expect(tool.description).toContain("Native bash");
+        expect(tool.description.length).toBeLessThanOrEqual(1000);
+        expect(tool.description).toContain("Prefer shell with available CLI tools");
+        expect(tool.description).toContain("Write custom code when tools are unsuitable");
+        expect(tool.description).toContain("hard to express clearly in shell");
+        expect(tool.description).toContain("any suitable supported language");
+        expect(tool.description).not.toMatch(/javascript|typescript|python/i);
         expect(tool.description).not.toBe(serverTools.find(t => t.name === name)?.description);
         expect(tool.promptGuidelines.join(" ")).toContain("retry");
       }

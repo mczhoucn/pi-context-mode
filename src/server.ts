@@ -11,6 +11,7 @@ import { request as httpsRequest } from "node:https";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
 import { PolyglotExecutor } from "./executor.js";
+import { CLI_FIRST_GUIDANCE } from "./tool-guidance.js";
 import { runPool, type PoolJob } from "./runPool.js";
 import { ContentStore, cleanupStaleDBs, cleanupStaleContentDBs, type SearchResult, type IndexResult } from "./store.js";
 import { composeFetchCacheKey } from "./fetch-cache.js";
@@ -1673,22 +1674,22 @@ server.registerTool(
       idempotentHint: false,
       openWorldHint: true,
     },
-    description: `Run one command or analyze generated data in a sandbox; only printed findings enter the conversation.
+    description: `Run one command or analyze data in a sandbox; only printed findings enter the conversation.
+
+${CLI_FIRST_GUIDANCE}
 
 WHEN:
-  - You need to filter, count, aggregate, parse, compare, or transform data
-  - A command may return large or unpredictable output, such as tests, logs, recursive searches, or API results
-  - You need a long-running process; set \`background: true\`
-  - You want large output indexed for later search; provide a specific \`intent\`
+  - Filter, count, parse, compare, or transform data
+  - Command output may be large or unpredictable (tests, logs, searches, APIs)
+  - Long-running process: set \`background: true\`
 
 WHEN NOT:
-  - You need one guaranteed-small result such as \`pwd\` or \`git status --short\`
-  - You need persistent file mutations or shell navigation; use native host tools
+  - Guaranteed-small results, persistent file mutations, or shell navigation: use native host tools
 
 RETURNS:
-  Printed stdout, or focused indexed previews when \`intent\` is set and output is large. Unprinted input stays outside the conversation.
+  Printed stdout, or indexed previews for large output with \`intent\`. Unprinted input stays outside the conversation.
 
-EXAMPLE: ctx_execute(language: "javascript", code: "const out = require('child_process').execSync('npm test', {encoding:'utf8'}); console.log(out.split('\\\\n').filter(l => /FAIL|Tests/.test(l)).join('\\\\n'))")`,
+EXAMPLE: ctx_execute(language: "shell", code: "git log -10 --oneline")`,
     inputSchema: z.object({
       language: z
         .enum([
@@ -3665,20 +3666,20 @@ server.registerTool(
       idempotentHint: false,
       openWorldHint: true,
     },
-    description: `Run several related commands, index their outputs, and return matches for batched queries in one call.
+    description: `Run related shell commands, index outputs, and search them in one call.
+
+${CLI_FIRST_GUIDANCE}
 
 WHEN:
-  - You have multiple related commands that would otherwise require separate ctx_execute calls
-  - You want to gather and search command output in the same round trip
-  - The combined output may be large or unpredictable
-  - The commands are independent and I/O-bound; use \`concurrency\` above 1
+  - Gather and search multiple command outputs, especially large or unpredictable output
+  - Independent I/O-bound commands: use \`concurrency\` above 1
 
 WHEN NOT:
-  - You need only one command or one sandboxed transformation; use ctx_execute
-  - Commands share mutable state, consume heavy CPU, or require strict ordering; keep \`concurrency: 1\`
+  - One command or custom-code analysis: use ctx_execute
+  - Shared state, heavy CPU, or strict ordering: keep \`concurrency: 1\`
 
 RETURNS:
-  Indexed output sections and matching excerpts for every query. Raw command output remains in storage for later ctx_search calls.
+  Indexed sections and matches for every query. Raw output remains available via ctx_search.
 
 EXAMPLE: ctx_batch_execute(commands: [{label: "issues", command: "gh issue list --limit 100"}, {label: "prs", command: "gh pr list --limit 100"}], queries: ["routing regressions", "open blockers"], concurrency: 2)`,
     inputSchema: z.object({

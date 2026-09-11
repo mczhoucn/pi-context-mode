@@ -270,11 +270,13 @@ Default: **off**. Add to context-mode's own settings (not generic Pi settings):
 
 ```json
 {
-  "recovery": {
+  "extensionAdapters": {
     "blackhole": { "enabled": true }
   }
 }
 ```
+
+`extensionAdapters` collects per-extension adaptation switches, keyed by extension name; Blackhole is currently the only entry.
 
 Explicit project fields override global fields. Invalid explicit configuration in either tier, or malformed/unreadable settings, disables trimming with a non-disruptive warning. Missing files/fields use defaults/inheritance. Existing `toolReplacements` settings are independent.
 

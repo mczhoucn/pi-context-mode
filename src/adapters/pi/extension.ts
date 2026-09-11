@@ -22,7 +22,7 @@ import { extractEvents, extractUserEvents, parsePiUsage, buildAgentUsageEvent } 
 import type { HookInput } from "../../session/extract.js";
 import { PiRecovery, renderRecovery } from "./recovery.js";
 import { readPiSessionId } from "./session-identity.js";
-import { loadRecoverySettings } from "./recovery-settings.js";
+import { loadExtensionAdapterSettings } from "./extension-adapter-settings.js";
 import type { SessionEvent } from "../../types.js";
 import { bootstrapMCPTools, makeBridgeDiag, isForegroundSession, type BridgeHandle } from "./mcp-bridge.js";
 import { loadToolReplacementSettings } from "./tool-replacement-settings.js";
@@ -461,7 +461,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   };
   const recovery = new PiRecovery({
     events: key => db.getEvents(key),
-    blackhole: () => loadRecoverySettings(projectDir, recoveryWarning),
+    blackhole: () => loadExtensionAdapterSettings(projectDir, recoveryWarning),
     render: (events, reason, blackhole) => renderRecovery(pluginRoot, events, reason, blackhole),
     send: (message, options) => pi.sendMessage(message, options),
     warn: recoveryWarning,

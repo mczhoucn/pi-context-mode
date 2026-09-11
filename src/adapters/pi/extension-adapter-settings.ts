@@ -4,13 +4,14 @@ import { resolvePiGlobalSettingsPath, resolveProjectSettingsPaths } from "../../
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** Invalid explicit configuration in either tier disables trimming, never recovery. */
-export function normalizeRecoverySettings(documents: readonly unknown[], warn: (message: string) => void): boolean {
+/** Per-extension adaptation switches; `blackhole` is the only entry today.
+ * Invalid explicit configuration in either tier disables trimming, never recovery. */
+export function normalizeExtensionAdapterSettings(documents: readonly unknown[], warn: (message: string) => void): boolean {
   let enabled = false;
   let invalid = false;
   for (const document of documents) {
     let value: unknown = document;
-    for (const key of ["recovery", "blackhole", "enabled"]) {
+    for (const key of ["extensionAdapters", "blackhole", "enabled"]) {
       if (!record(value)) { invalid = true; break; }
       if (!(key in value)) { value = undefined; break; }
       value = value[key];
@@ -20,11 +21,11 @@ export function normalizeRecoverySettings(documents: readonly unknown[], warn: (
       }
     }
   }
-  if (invalid) warn("Invalid context-mode recovery.blackhole.enabled configuration; trimming disabled.");
+  if (invalid) warn("Invalid context-mode extensionAdapters.blackhole.enabled configuration; trimming disabled.");
   return !invalid && enabled;
 }
 
-export function loadRecoverySettings(projectDir: string, warn: (message: string) => void, home = homedir()): boolean {
+export function loadExtensionAdapterSettings(projectDir: string, warn: (message: string) => void, home = homedir()): boolean {
   const documents: unknown[] = [];
   for (const path of [resolvePiGlobalSettingsPath(home), ...resolveProjectSettingsPaths(projectDir, "pi")]) {
     try { documents.push(JSON.parse(readFileSync(path, "utf8"))); }
@@ -32,5 +33,5 @@ export function loadRecoverySettings(projectDir: string, warn: (message: string)
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") documents.push(null);
     }
   }
-  return normalizeRecoverySettings(documents, warn);
+  return normalizeExtensionAdapterSettings(documents, warn);
 }

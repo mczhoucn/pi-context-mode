@@ -6,14 +6,14 @@ Read when changing Pi lifecycle hooks, recovery delivery/provenance, historical 
 
 ## 2. Signatures and ownership
 
-- `recovery-settings.ts`: `normalizeRecoverySettings(documents, warn): boolean`, `loadRecoverySettings(projectDir, warn, home?): boolean`.
+- `extension-adapter-settings.ts`: `normalizeExtensionAdapterSettings(documents, warn): boolean`, `loadExtensionAdapterSettings(projectDir, warn, home?): boolean`. The namespace is per extension (`extensionAdapters.<extension>.enabled`); `blackhole` is the only entry today, other entries are inert.
 - `recovery.ts`: `projectRecoveryEvents(events, reason, blackhole)`, `renderRecovery(pluginRoot, events, reason, blackhole)`; instance-scoped `PiRecovery.activate/prepare/failed/compact/filter/reset`.
 - `extension.ts`: thin lifecycle wiring; `before_agent_start` retains lazy bridge/replacements and genuine raw/derived prompt capture, **not recovery generation**.
 - `hooks/session-directive.mjs`: additive fourth argument `{ historical?, includeGoal?, searchHint?, dataSearchHint?, dataOlderHint? }`; omitted options preserve Claude output. Pi uses the existing guide once, not a duplicate behavioral block.
 
 ## 3. Contracts
 
-`recovery.blackhole.enabled` defaults false. Only `~/.pi/agent/context-mode/settings.json` and `<project>/.pi/context-mode/settings.json` are read, through existing path helpers. Explicit project fields override global fields; invalid explicit values at either tier disable trimming. Warnings use the existing TUI-safe logger/UI/custom-message channel and are deduplicated per activation. Replacement decoding remains independent.
+`extensionAdapters.blackhole.enabled` defaults false. The retired `recovery.blackhole.enabled` namespace is not aliased: it is an unknown field, ignored without warning, so opt-in must be re-declared under `extensionAdapters`. Only `~/.pi/agent/context-mode/settings.json` and `<project>/.pi/context-mode/settings.json` are read, through existing path helpers. Explicit project fields override global fields; invalid explicit values at either tier disable trimming. Warnings use the existing TUI-safe logger/UI/custom-message channel and are deduplicated per activation. Replacement decoding remains independent.
 
 Capture, recovery and stats use public `sessionManager.getSessionId()` directly, sharing `readPiSessionId` in `session-identity.ts`. File path is a delivery guard, never a DB key. Normal reopen/rename preserves native identity; a reused file with a different host ID must not read its predecessor. Missing native ID uses isolated random bookkeeping in the extension; missing identity or persistent file never qualifies for recovery. Any off-branch entry makes session-wide events ambiguous: do not rebuild them. Tree/fork changes clear local eligibility until another verified activation. Old path-hash rows lack native-ID binding: no automatic reads/migration/deletion; existing retention and native transcripts are unchanged. No `getLatestSessionEvents`, latest-snapshot claim or raw XML fallback is needed for normal Pi resume.
 
@@ -41,6 +41,7 @@ Pi host search/data hints use `ctx_search(queries: [...], sort: "timeline")`, no
 | Missing renderer / send failure | Warn safely; no raw fallback; later eligible activation can retry |
 | Missing settings / ENOENT | Default/inherit |
 | Invalid object/boolean, malformed/unreadable file | Trimming off; lifecycle still enabled |
+| Retired `recovery` namespace or other extension entry | Ignored as unknown field: no alias, no warning |
 | Other extension/user messages | Preserve unchanged, including tool/result ordering |
 
 ## 5. Good / base / bad cases
@@ -53,7 +54,7 @@ Pi host search/data hints use `ctx_search(queries: [...], sort: "timeline")`, no
 
 ## 6. Required tests and verified limits
 
-- `tests/adapters/pi-recovery-settings.test.ts`: defaults, precedence, invalid lower tier, ENOENT, malformed/unreadable files and generic-settings isolation.
+- `tests/adapters/pi-extension-adapter-settings.test.ts`: defaults, precedence, invalid lower tier, ENOENT, malformed/unreadable files, generic-settings isolation, other-extension isolation and ignored retired namespace.
 - `tests/adapters/pi-recovery.test.ts`: category matrix, bounded data, excluded-only empty results, HEAD-derived Claude golden fixture, identity, preparation/success/failure, persistent delivery confirmation, duplicates/reload, empty supersession, async stale identity and helper failure.
 - `tests/pi-extension.test.ts`: real event shapes, strict preparation no-return/no-send, native-ID capture/stats/reopen/rename/path-reuse/legacy sentinels, real SessionDB + ContentStore timeline search, repeated prompt occurrences, lifecycle send without another prompt, context no-append and existing routing/bridge registration.
 - Build then `node tests/fixtures/pi-recovery-host-smoke.mjs`: installed Pi 0.85.1 + pi-blackhole 0.5.2 inline adapter, no model/network, both product/synthetic-summary extension orders, real chained filtering, next-turn refresh, persisted entries, idle compact, empty retirement and tool ordering; fresh-process public-manager reopen/rename with native-ID SessionDB recovery (added in review pass; final execution pending). Overrides: `PI_SMOKE_CLI`, `PI_BLACKHOLE_ROOT`. Missing prerequisites fail explicitly; this is optional host-dependent verification, not a portable unit test.

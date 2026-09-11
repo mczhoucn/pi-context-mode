@@ -11,6 +11,7 @@ Implementation owners:
 - `src/adapters/pi/host-entry.ts`: static host-SDK import and injection into `piExtension`.
 - `tool-replacement-settings.ts`: `loadToolReplacementSettings(projectDir, warn, home?)` and the single `normalizeToolReplacements(documents, warn)` decoder.
 - `tool-replacements.ts`: `installToolReplacements(pi, cwd, settings, sdk, warn) -> { bash, read }`, `createBoundedRead`, and pure `formatReadText`.
+- `system-prompt-guideline.ts`: pure `stripBashFileOperationsGuideline(text)` and `filterProviderPayload(payload)`; the extension registers them from `before_provider_request`.
 - `mcp-bridge.ts`: effective Bash policy selects Pi-specific ctx descriptions and prompt metadata.
 
 The package's `pi.extensions` and `.pi/extensions/context-mode/index.ts` must point to the same host entry. Ordinary Node tests import injectable helpers instead of requiring a globally installed Pi SDK.
@@ -25,6 +26,8 @@ Both switches default off. Explicit project fields override global fields, then 
 
 Only an actually activated Bash replacement selects stronger ctx routing. Native Bash remains callable for failure recovery; never automatically retry possibly side-effecting ctx operations.
 
+An effective Bash replacement also removes Pi's hardcoded Bash file-exploration bullet (`- Use bash for file operations like ls, rg, find`, plus its PowerShell variants) from the provider payload. Pi emits it from the ACTIVE TOOL NAMES alone (`dist/core/system-prompt.js:54-70`), so it cannot be suppressed through `promptGuidelines`, which are appended one-way; while the replacement is effective that bullet contradicts the ctx_execute routing policy. Removal happens at `before_provider_request` — the payload seam, after every `before_agent_start` chain and tool registration — and is content-addressed to the exact bullet line inside known instruction slots. It must NOT be gated on whole-string equality with `ctx.getSystemPrompt()`: an earlier payload handler (remove-pi-system) rewrites the same system text first, and provider payload families differ, so equality would silently stop matching. Non-instruction content (history, tool schemas, sampling fields) is never rewritten, an unchanged payload keeps its input reference, and errors leave the payload untouched.
+
 Check ownership using the runtime-bound `getAllTools()` projection, not an extension's registration map. In Pi 0.85.1, `registerTool` synchronously calls `runtime.refreshTools`, bound by AgentSession to `_refreshToolRegistry`; its resulting `_toolDefinitions` backs `getAllTools()`. This permits immediate activation verification on the supported host. A third-party discovery-time owner must survive regardless of extension order; this does not promise protection against later dynamic takeovers.
 
 ## 4. Validation and error matrix
@@ -38,6 +41,9 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 | Malformed/unreadable settings | Disable both and warn; ENOENT is absence |
 | Tool owned by another extension/SDK, unsupported schema/capability | Skip that feature and warn |
 | Activation cannot be verified | Do not advertise effective routing; request reload/restart |
+| Bash replacement inactive | Pi's Bash file-exploration bullet stays; payload passes through by reference |
+| Bash replacement effective | Bullet removed from instruction slots only; every other field keeps its input reference |
+| Payload slot already rewritten by another extension, unknown shape, hostile/proxy object | Filter is content-addressed and fails closed: unmatched or unreadable payloads are returned unchanged |
 | Read offset/limit not positive safe integers | Error |
 | Access/EOF/cancellation failure | Preserve failure, not a successful-looking excerpt |
 | First source line exceeds byte budget | No source fragment; explicit guidance, no same-offset continuation loop |
@@ -53,7 +59,8 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 ## 6. Required tests and assertion points
 
 - `tests/adapters/pi-tool-replacements.test.ts`: defaults/four combinations, configuration precedence/validation, ownership, exact line/byte caps, pagination, images, cancellation, and effective policy.
-- `tests/pi-extension.test.ts`: registration/prompt metadata and lazy lifecycle integration.
+- `tests/adapters/pi-system-prompt-guideline.test.ts`: bullet variants, near-miss and non-LF fail-closed, every instruction slot shape, untouched history/tool schemas, reference preservation, idempotence, hostile payloads, and the real extension wiring (inactive policy is a no-op; effective policy strips after another handler rewrote the system text).
+- `tests/pi-extension.test.ts`: registration/prompt metadata, lazy lifecycle integration, and `before_provider_request` registration plus its inactive-policy no-op.
 - Existing Pi configuration, help/no-orphan, workspace, and bridge tests must remain green.
 - After building, `node tests/fixtures/pi-replacements-host-smoke.mjs` checks the actual compiled entry through both installed Pi loaders, real native definitions, and a real AgentSession registry. It covers both extension orders and SDK ownership conflicts without simulating `getAllTools`. Resources/settings are isolated and it makes zero model requests; it is not a full model-session test.
 - `npm run typecheck`, `npm run build`, and `git diff --check` are required gates.
@@ -65,6 +72,10 @@ SDK loader evidence is from Pi 0.85.1: static root imports work through bundled/
 **Wrong:** truncate the native result's text and derive the next offset by counting all returned lines. Native notices and source text are not distinguishable by string parsing.
 
 **Correct:** capture the native readFile Buffer per invocation, preserve MIME-detected image results, and format exact source ranges with accurate continuation and truncation details.
+
+**Wrong:** gate the bullet removal on `payload.instructions === ctx.getSystemPrompt()` (or on any whole-prompt equality). Earlier payload handlers and provider-specific serialization break that equality, and the filter silently stops working while the contradictory bullet stays in the prompt.
+
+**Correct:** match the exact bullet LINE inside known instruction slots, return the payload by reference when nothing matched, and leave unknown shapes untouched.
 
 **Wrong:** pass `{ maxLines, maxBytes }` to the native Read factory or assume its fixed 2,000-line/50-KiB formatter implements the feature.
 

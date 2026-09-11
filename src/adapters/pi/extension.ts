@@ -8,7 +8,8 @@
  * Entry point: `export default function(pi: ExtensionAPI) { ... }`
  *
  * Lifecycle: session_start, tool_call, tool_result, before_agent_start,
- * session_before_compact, session_compact, session_shutdown.
+ * before_provider_request, session_before_compact, session_compact,
+ * session_shutdown.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -27,6 +28,7 @@ import type { SessionEvent } from "../../types.js";
 import { bootstrapMCPTools, makeBridgeDiag, isForegroundSession, type BridgeHandle } from "./mcp-bridge.js";
 import { loadToolReplacementSettings } from "./tool-replacement-settings.js";
 import { installToolReplacements, type NativeToolSDK } from "./tool-replacements.js";
+import { filterProviderPayload } from "./system-prompt-guideline.js";
 import { PiAdapter } from "./index.js";
 
 // ── Pi Tool Name Mapping ─────────────────────────────────
@@ -658,6 +660,30 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
 
     } catch {
       // best effort — never break agent start
+    }
+  });
+
+  // ── 4a. before_provider_request — drop Pi's hardcoded Bash fallback line ─
+  //
+  // Pi adds "- Use bash for file operations like ls, rg, find" from the ACTIVE
+  // TOOL NAMES alone, so re-registering `bash` as a recovery channel cannot
+  // suppress it: promptGuidelines are appended one-way. While the Bash
+  // replacement is effective that bullet contradicts the ctx_execute routing
+  // policy shipped in the same prompt.
+  //
+  // This runs at the payload seam — the same seam remove-pi-system uses —
+  // because another payload handler may already have rewritten the system
+  // text, so whole-string equality with ctx.getSystemPrompt() would silently
+  // stop matching. The filter is content-addressed, copy-on-write, and never
+  // throws. Only an EFFECTIVE Bash replacement opts in: with the switch off,
+  // the bullet agrees with native Bash and must stay.
+  pi.on("before_provider_request", (event: any) => {
+    try {
+      if (!effectiveReplacements.bash) return;
+      const payload = filterProviderPayload(event?.payload);
+      return payload === event?.payload ? undefined : payload;
+    } catch {
+      // best effort — never break the provider request
     }
   });
 

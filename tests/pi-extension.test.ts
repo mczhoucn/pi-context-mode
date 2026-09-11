@@ -1053,6 +1053,46 @@ describe("Pi Extension", () => {
   });
 
   // ═══════════════════════════════════════════════════════════
+  // Slice 8b: before_provider_request — Pi's hardcoded Bash bullet
+  // ═══════════════════════════════════════════════════════════
+
+  describe("Slice 8b: before_provider_request payload filtering", () => {
+    const hostPrompt = [
+      "Guidelines:",
+      "- Use bash for file operations like ls, rg, find",
+      "- Route all shell commands through ctx_execute or suitable ctx_batch_execute.",
+    ].join("\n");
+
+    it("registers a before_provider_request handler", async () => {
+      await registerPiExtension(api);
+      expect(api._handlers["before_provider_request"]).toBeDefined();
+      expect(api._handlers["before_provider_request"].length).toBeGreaterThan(0);
+    });
+
+    it("leaves the payload untouched while no Bash replacement is effective", async () => {
+      // This suite registers the extension without a native SDK, so the Bash
+      // replacement can never become effective and the provider payload — and
+      // the bullet that agrees with native Bash — must pass through unchanged.
+      await registerPiExtension(api);
+      const payload = { model: "pi-1", instructions: hostPrompt };
+      await expect(api._trigger("before_provider_request", { payload })).resolves.toBeUndefined();
+      expect(payload.instructions).toBe(hostPrompt);
+      expect(payload.instructions).toContain("Use bash for file operations like");
+    });
+
+    it("never throws on empty or hostile payloads", async () => {
+      await registerPiExtension(api);
+      for (const payload of [undefined, null, 0, "text", [], new Proxy({}, {
+        getOwnPropertyDescriptor() { throw new Error("hostile payload"); },
+      })]) {
+        await expect(
+          api._trigger("before_provider_request", { payload }),
+        ).resolves.toBeUndefined();
+      }
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
   // Slice 9: active_memory always-on + token cap (Pi-3, Pi-4)
   // ═══════════════════════════════════════════════════════════
 

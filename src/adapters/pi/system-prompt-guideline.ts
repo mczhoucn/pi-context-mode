@@ -9,12 +9,14 @@
  *   - Use bash or PowerShell for file operations like listing, searching, and finding files
  *   - Use PowerShell for file operations like listing, searching, and finding files
  *
- * Pi decides that from ACTIVE TOOL NAMES ONLY, so an extension cannot suppress
- * it through prompt metadata: `promptGuidelines` are appended and de-duplicated,
- * never removed. Re-registering `bash` as context-mode's recovery channel
- * therefore leaves the prompt self-contradictory — one bullet presents bash as
- * the tool for file exploration while the replacement description and the
- * ctx_execute routing guideline present it as the last resort.
+ * The recovery replacement clears the native `promptSnippet`, which hides Bash
+ * from Pi's textual Available/Core tools summary without disabling the callable
+ * tool. Pi decides this separate guideline from ACTIVE TOOL NAMES ONLY, so an
+ * extension cannot suppress it through prompt metadata: `promptGuidelines` are
+ * appended and de-duplicated, never removed. Re-registering `bash` as
+ * context-mode's recovery channel would otherwise leave the prompt
+ * self-contradictory: one bullet presents bash as the tool for file exploration
+ * while the ctx_execute routing guideline presents it as the last resort.
  *
  * Removal runs at the `before_provider_request` payload seam (the same seam
  * remove-pi-system uses) for two reasons:

@@ -663,13 +663,14 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
     }
   });
 
-  // ── 4a. before_provider_request — drop Pi's hardcoded Bash fallback line ─
+  // ── 4a. before_provider_request — drop Pi's Bash file-operation line ─
   //
-  // Pi adds "- Use bash for file operations like ls, rg, find" from the ACTIVE
-  // TOOL NAMES alone, so re-registering `bash` as a recovery channel cannot
-  // suppress it: promptGuidelines are appended one-way. While the Bash
-  // replacement is effective that bullet contradicts the ctx_execute routing
-  // policy shipped in the same prompt.
+  // Pi's tool summary is handled by clearing the replacement's promptSnippet.
+  // Separately, Pi adds "- Use bash for file operations like ls, rg, find"
+  // from the ACTIVE TOOL NAMES alone, so keeping `bash` as a callable recovery
+  // channel still triggers it. promptGuidelines are appended one-way and cannot
+  // suppress it. While the Bash replacement is effective that bullet
+  // contradicts the ctx_execute routing policy shipped in the same prompt.
   //
   // This runs at the payload seam — the same seam remove-pi-system uses —
   // because another payload handler may already have rewritten the system

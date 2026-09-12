@@ -34,7 +34,12 @@ function sdkFixture() {
   const sdk: NativeToolSDK = {
     truncateHead,
     detectSupportedImageMimeTypeFromFile: vi.fn(async () => null),
-    createBashToolDefinition: () => ({ name: "bash", label: "Bash", description: "native", parameters: schemas.bash, execute: bashExecute, renderResult }),
+    createBashToolDefinition: () => ({
+      name: "bash", label: "Bash", description: "native",
+      promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
+      promptGuidelines: ["Use native bash for shell work."],
+      parameters: schemas.bash, execute: bashExecute, renderResult,
+    }),
     createReadToolDefinition: (_cwd, options) => ({
       name: "read", label: "Read", description: "native", parameters: schemas.read, renderResult,
       prepareArguments: { native: true },
@@ -154,6 +159,10 @@ describe("native replacement installation and routing", () => {
     await tools[0].execute("id", args, signal, update, ctx);
     expect(bashExecute).toHaveBeenCalledExactlyOnceWith("id", args, signal, update, ctx);
     expect(tools[0].description).toContain("recovery");
+    expect(tools[0].promptSnippet).toBeUndefined();
+    expect(tools[0].promptGuidelines).toEqual([
+      expect.stringMatching(/bash only as a recovery fallback when ctx_execute is unavailable or has failed/i),
+    ]);
   });
   it("Pi descriptions and prompt metadata agree only for effective Bash policy", () => {
     for (const name of ["ctx_execute", "ctx_batch_execute"]) {

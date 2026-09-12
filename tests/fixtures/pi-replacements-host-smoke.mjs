@@ -128,6 +128,16 @@ try {
           assert.equal(installed.sourceInfo.source === "builtin", !enabled);
           if (enabled) assert.equal(installed.description, ext.tools.get(name).definition.description);
         }
+        assert.equal(/^- bash:/m.test(session.systemPrompt), !bash,
+          "effective Bash replacement must omit Bash from Pi's tool summary");
+        if (bash) {
+          assert.match(session.systemPrompt,
+            /^- Use bash only as a recovery fallback when ctx_execute is unavailable or has failed\./m);
+          assert.doesNotMatch(session.systemPrompt, /Execute bash commands \(ls, grep, find, etc\.\)/);
+        } else {
+          assert.doesNotMatch(session.systemPrompt,
+            /Use bash only as a recovery fallback when ctx_execute is unavailable or has failed\./);
+        }
         if (read) {
           const nativeFile = join(cwd, "source"); writeFileSync(nativeFile, lines.join("\n"));
           assert.match((await session.getToolDefinition("read").execute("loaded", { path: nativeFile })).content[0].text, /offset=301/);

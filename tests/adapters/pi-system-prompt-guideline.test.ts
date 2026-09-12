@@ -2,9 +2,11 @@ import "../setup-home";
 /**
  * Pi Bash file-exploration guideline removal.
  *
- * Pi hardcodes "- Use bash for file operations like ls, rg, find" from the
- * active tool NAMES alone, so a recovery-only Bash replacement cannot suppress
- * it through prompt metadata. It is removed at the provider payload seam.
+ * Pi omits a callable tool from its textual tool summary when that tool has no
+ * promptSnippet, so the recovery Bash replacement clears the native snippet.
+ * Pi still hardcodes "- Use bash for file operations like ls, rg, find" from
+ * active tool NAMES alone; that conflicting bullet is removed at the provider
+ * payload seam.
  *
  * The last suite exercises the real extension wiring: only an EFFECTIVE Bash
  * replacement opts in, and the payload is filtered after an earlier payload
@@ -34,11 +36,10 @@ const HOST_PROMPT = [
   "",
   "Available tools:",
   "- read: Read exact file excerpts (up to 300 lines / 10240 source bytes) or images",
-  "- bash: Native shell recovery only when context-mode fails",
   "",
   "Guidelines:",
   "- Use bash for file operations like ls, rg, find",
-  "- Route all shell commands through ctx_execute or suitable ctx_batch_execute, regardless of output size or side effects.",
+  "- Use bash only as a recovery fallback when ctx_execute is unavailable or has failed. Normally route all shell commands through ctx_execute or suitable ctx_batch_execute, regardless of output size or side effects; inspect possible prior side effects before any retry.",
   "- Be concise in your responses",
   PI_DOCS_BLOCK,
   "",
@@ -72,7 +73,7 @@ describe("stripBashFileOperationsGuideline", () => {
     const stripped = stripBashFileOperationsGuideline(HOST_PROMPT);
     expect(stripped).toBe(BASHLESS_PROMPT);
     expect(stripped).not.toContain("Use bash for file operations");
-    expect(stripped).toContain("- Route all shell commands through ctx_execute");
+    expect(stripped).toContain("- Use bash only as a recovery fallback when ctx_execute");
     expect(stripped).toContain("- Be concise in your responses");
     expect(stripped).toContain("Current working directory: /tmp/project");
   });
@@ -123,7 +124,7 @@ describe("filterProviderPayload", () => {
       const payload: Record<string, unknown> = { model: "m", [slot]: value };
       const filtered = filterProviderPayload(payload) as Record<string, unknown>;
       expect(JSON.stringify(filtered)).not.toContain("Use bash for file operations");
-      expect(JSON.stringify(filtered)).toContain("Route all shell commands through ctx_execute");
+      expect(JSON.stringify(filtered)).toContain("Use bash only as a recovery fallback when ctx_execute");
       expect(filtered.model).toBe("m");
     }
   });
@@ -162,7 +163,7 @@ describe("filterProviderPayload", () => {
     expect(EARLIER_FILTERED_PROMPT).not.toBe(HOST_PROMPT);
     const filtered = filterProviderPayload(payloadOf(EARLIER_FILTERED_PROMPT)) as { instructions: string };
     expect(filtered.instructions).not.toContain("Use bash for file operations");
-    expect(filtered.instructions).toContain("Route all shell commands through ctx_execute");
+    expect(filtered.instructions).toContain("Use bash only as a recovery fallback when ctx_execute");
   });
 
   it("never rewrites tool schemas or non-instruction history", () => {

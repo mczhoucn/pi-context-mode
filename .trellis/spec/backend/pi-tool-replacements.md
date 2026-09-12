@@ -24,7 +24,7 @@ Both switches default off. Explicit project fields override global fields, then 
 
 `read` keeps path/offset/limit, native-compatible result/details/image shapes, and errors. Each invocation privately captures the complete Buffer and detected MIME from its own native ReadOperations. Native image results are returned unchanged; text is formatted from that Buffer, never from the native human-readable output. This limits model output, not whole-file memory usage.
 
-Only an actually activated Bash replacement selects stronger ctx routing. Native Bash remains callable for failure recovery; never automatically retry possibly side-effecting ctx operations.
+Only an actually activated Bash replacement selects stronger ctx routing. Native Bash remains callable for failure recovery; never automatically retry possibly side-effecting ctx operations. The replacement explicitly clears the native Bash `promptSnippet`: Pi therefore omits Bash from its textual `Available tools` section (including headings rewritten to `Core tools`) while retaining the callable provider tool and its full schema description. The recovery-only explanation lives in Bash's `promptGuidelines`, which Pi renders independently in `Guidelines`.
 
 An effective Bash replacement also removes Pi's hardcoded Bash file-exploration bullet (`- Use bash for file operations like ls, rg, find`, plus its PowerShell variants) from the provider payload. Pi emits it from the ACTIVE TOOL NAMES alone (`dist/core/system-prompt.js:54-70`), so it cannot be suppressed through `promptGuidelines`, which are appended one-way; while the replacement is effective that bullet contradicts the ctx_execute routing policy. Removal happens at `before_provider_request` — the payload seam, after every `before_agent_start` chain and tool registration — and is content-addressed to the exact bullet line inside known instruction slots. It must NOT be gated on whole-string equality with `ctx.getSystemPrompt()`: an earlier payload handler (remove-pi-system) rewrites the same system text first, and provider payload families differ, so equality would silently stop matching. Non-instruction content (history, tool schemas, sampling fields) is never rewritten, an unchanged payload keeps its input reference, and errors leave the payload untouched.
 
@@ -41,8 +41,8 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 | Malformed/unreadable settings | Disable both and warn; ENOENT is absence |
 | Tool owned by another extension/SDK, unsupported schema/capability | Skip that feature and warn |
 | Activation cannot be verified | Do not advertise effective routing; request reload/restart |
-| Bash replacement inactive | Pi's Bash file-exploration bullet stays; payload passes through by reference |
-| Bash replacement effective | Bullet removed from instruction slots only; every other field keeps its input reference |
+| Bash replacement inactive | Native Bash keeps its tool-summary snippet and Pi's Bash file-exploration bullet; payload passes through by reference |
+| Bash replacement effective | Bash remains callable but has no tool-summary snippet; its fallback policy appears in `Guidelines`, and Pi's conflicting file-exploration bullet is removed from instruction slots only; every other field keeps its input reference |
 | Payload slot already rewritten by another extension, unknown shape, hostile/proxy object | Filter is content-addressed and fails closed: unmatched or unreadable payloads are returned unchanged |
 | Read offset/limit not positive safe integers | Error |
 | Access/EOF/cancellation failure | Preserve failure, not a successful-looking excerpt |
@@ -58,11 +58,11 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 
 ## 6. Required tests and assertion points
 
-- `tests/adapters/pi-tool-replacements.test.ts`: defaults/four combinations, configuration precedence/validation, ownership, exact line/byte caps, pagination, images, cancellation, and effective policy.
+- `tests/adapters/pi-tool-replacements.test.ts`: defaults/four combinations, configuration precedence/validation, ownership, Bash tool-summary suppression with independent fallback guidance, exact line/byte caps, pagination, images, cancellation, and effective policy.
 - `tests/adapters/pi-system-prompt-guideline.test.ts`: bullet variants, near-miss and non-LF fail-closed, every instruction slot shape, untouched history/tool schemas, reference preservation, idempotence, hostile payloads, and the real extension wiring (inactive policy is a no-op; effective policy strips after another handler rewrote the system text).
 - `tests/pi-extension.test.ts`: registration/prompt metadata, lazy lifecycle integration, and `before_provider_request` registration plus its inactive-policy no-op.
 - Existing Pi configuration, help/no-orphan, workspace, and bridge tests must remain green.
-- After building, `node tests/fixtures/pi-replacements-host-smoke.mjs` checks the actual compiled entry through both installed Pi loaders, real native definitions, and a real AgentSession registry. It covers both extension orders and SDK ownership conflicts without simulating `getAllTools`. Resources/settings are isolated and it makes zero model requests; it is not a full model-session test.
+- After building, `node tests/fixtures/pi-replacements-host-smoke.mjs` checks the actual compiled entry through both installed Pi loaders, real native definitions, and a real AgentSession registry and system prompt. It covers Bash summary visibility and fallback guidance for both switch states, both extension orders, and SDK ownership conflicts without simulating `getAllTools`. Resources/settings are isolated and it makes zero model requests; it is not a full model-session test.
 - `npm run typecheck`, `npm run build`, and `git diff --check` are required gates.
 
 SDK loader evidence is from Pi 0.85.1: static root imports work through bundled/unbundled loaders; compiled-JS dynamic imports do not resolve the virtual SDK. Capability checks do not rescue an unresolved static import; preserve the supported-loader documentation.

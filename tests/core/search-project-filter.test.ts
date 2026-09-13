@@ -334,6 +334,67 @@ describe("Slice 4: ctx_search inputSchema conditional on CONTEXT_MODE_PROJECT_DI
   });
 });
 
+// ═══════════════════════════════════════════════════════════
+// P0-2: ctx_search schema must match the runtime contract
+//
+// Before this fix `queries` was optional at the wire level while the handler
+// always rejected an empty query list — tools/list advertised `{}` as a valid
+// call that the server then refused. The schema is now required + min(1) with
+// per-item non-empty strings, and the singular `query` alias is gone because
+// Zod object parsing strips unknown keys before the handler can see them.
+// ═══════════════════════════════════════════════════════════
+
+describe("P0-2: ctx_search schema/runtime contract", () => {
+  const load = async () =>
+    (await import("../../src/search/ctx-search-schema.js")).buildCtxSearchInputSchema(false);
+
+  test("empty object is rejected (no more schema-legal no-query call)", async () => {
+    const schema = await load();
+    expect(schema.safeParse({}).success).toBe(false);
+  });
+
+  test("empty queries array is rejected", async () => {
+    const schema = await load();
+    expect(schema.safeParse({ queries: [] }).success).toBe(false);
+  });
+
+  test("blank query strings are rejected", async () => {
+    const schema = await load();
+    expect(schema.safeParse({ queries: [""] }).success).toBe(false);
+    expect(schema.safeParse({ queries: ["a", "  "] }).success).toBe(false);
+    // Whitespace-only entries are rejected, not silently dropped.
+    expect(schema.safeParse({ queries: ["\t"] }).success).toBe(false);
+  });
+
+  test("singular `query` is NOT a declared parameter (alias was unreachable)", async () => {
+    const schema = await load();
+    expect(Object.keys(schema.shape)).not.toContain("query");
+    expect(schema.safeParse({ query: "root cause" }).success).toBe(false);
+  });
+
+  test("a non-empty query array passes and keeps provider coercions working", async () => {
+    const schema = await load();
+    expect(schema.safeParse({ queries: ["root cause"] }).success).toBe(true);
+    // #627/#621 provider shapes must keep working: JSON-stringified array,
+    // bare string, and a stringified numeric limit.
+    expect(schema.safeParse({ queries: JSON.stringify(["a", "b"]) }).success).toBe(true);
+    expect(schema.safeParse({ queries: "bare query" }).success).toBe(true);
+    expect(schema.safeParse({ queries: ["a"], limit: "4" }).success).toBe(true);
+  });
+
+  test("limit defaults to 2 — the same ceiling the handler enforces", async () => {
+    const schema = await load();
+    const parsed = schema.safeParse({ queries: ["a"] });
+    expect(parsed.success).toBe(true);
+    expect((parsed as { data: { limit: number } }).data.limit).toBe(2);
+    // Advertised description must not promise more than the runtime returns.
+    const described = schema.shape.limit.description ?? "";
+    expect(described).toContain("default: 2");
+    expect(described).toMatch(/maximum: 2/);
+    expect(described).not.toContain("default: 3");
+  });
+});
+
 describe("Slice 5: resolveProjectScope", () => {
   test("returns getProjectDir() when param is undefined and shared mode is on", async () => {
     const { resolveProjectScope } = await import("../../src/search/ctx-search-schema.js");

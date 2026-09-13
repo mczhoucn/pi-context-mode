@@ -2243,6 +2243,8 @@ server.registerTool(
     },
     description: `Store local or inline reference material as searchable chunks for later ctx_search queries.
 
+Provide at least one input: \`content\` (inline text) or \`path\` (file/directory). Calls with neither are rejected.
+
 WHEN:
   - You need to retain documentation, API references, code examples, READMEs, or migration guides
   - You want to index a local file or bounded directory without returning its raw bytes
@@ -2256,18 +2258,23 @@ RETURNS:
   Chunk counts, source label, and a ctx_search call shape. Stored content is returned only through later focused searches.
 
 EXAMPLE: ctx_index(path: "docs", source: "project-docs", maxDepth: 3, maxFiles: 100)`,
+    // NOTE: the "at least one input" rule is deliberately NOT expressed with
+    // .refine()/z.union() — see the class-wide comment above ctx_search and
+    // issue #563. The MCP SDK reads `.shape` off a plain ZodObject to build
+    // the advertised JSON Schema; any ZodEffects/union wrapper collapses it to
+    // `{type:"object",properties:{}}` and strict clients then refuse the tool.
     inputSchema: z.object({
       content: z
         .string()
         .optional()
         .describe(
-          "Raw text/markdown to index. Provide this OR path, not both.",
+          "Raw text/markdown to index. Provide this OR `path` (at least one is required).",
         ),
       path: z
         .string()
         .optional()
         .describe(
-          "File OR directory path to read and index (content never enters context). Provide this OR content. Directory paths trigger a bounded recursive walk (#687).",
+          "File OR directory path to read and index (content never enters context). Provide this OR `content` (at least one is required). Directory paths trigger a bounded recursive walk (#687).",
         ),
       source: z
         .string()
@@ -2299,12 +2306,15 @@ EXAMPLE: ctx_index(path: "docs", source: "project-docs", maxDepth: 3, maxFiles: 
     }),
   },
   async ({ content, path, source, include, exclude, maxDepth, maxFiles, extensions, respectGitignore, followSymlinks }) => {
+    // At-least-one-input rule (#P1). The schema cannot express this without
+    // destroying the advertised parameter list (#563), so it is enforced here
+    // and documented in the tool description.
     if (!content && !path) {
       return trackResponse("ctx_index", {
         content: [
           {
             type: "text" as const,
-            text: "Error: Either content or path must be provided",
+            text: "Error: ctx_index needs at least one input — `content` (inline text) or `path` (file or directory).",
           },
         ],
         isError: true,
@@ -2448,6 +2458,12 @@ function readPositiveEnv(name: string, defaultValue: number): number {
 
 const SEARCH_WINDOW_MS = readPositiveEnv("CONTEXT_MODE_SEARCH_WINDOW_MS", 60_000);
 const SEARCH_MAX_RESULTS_AFTER = readPositiveEnv("CONTEXT_MODE_SEARCH_MAX_RESULTS_AFTER", 3); // after N calls: 1 result per query
+/**
+ * Hard ceiling on excerpts returned per query in normal (non-soft-capped)
+ * mode. Mirrored by the ctx_search schema's `limit` default/description —
+ * change both together or the advertised contract drifts from the runtime.
+ */
+const MAX_RESULTS_PER_QUERY = 2;
 const SEARCH_BLOCK_AFTER = readPositiveEnv("CONTEXT_MODE_SEARCH_BLOCK_AFTER", 8); // after N calls: refuse, demand batching
 
 // #769: progressive throttle bucketed PER agent-context, not machine-global.
@@ -2566,7 +2582,7 @@ WHEN NOT:
   - You need a one-off computation over raw data; use ctx_execute or ctx_execute_file
 
 RETURNS:
-  Ranked excerpts for each query, with source metadata and staleness notices where available.
+  Ranked excerpts for each query, with source metadata and staleness notices where available. At most 2 excerpts per query.
 
 EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], source: "issue-683")`,
     // Schema construction is centralised in `src/search/ctx-search-schema.ts`
@@ -2600,27 +2616,39 @@ EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], so
 
       const raw = params as Record<string, unknown>;
 
-      // Normalize: accept both query (string) and queries (array)
-      const queryList: string[] = [];
-      if (Array.isArray(raw.queries) && raw.queries.length > 0) {
-        queryList.push(...(raw.queries as string[]));
-      } else if (typeof raw.query === "string" && raw.query.length > 0) {
-        queryList.push(raw.query as string);
-      }
+      // Schema-validated already: `queries` is required, non-empty, and every
+      // entry is a non-blank string (src/search/ctx-search-schema.ts). The
+      // check below is a defensive backstop for callers that reach the handler
+      // without the transport's parse step. It REJECTS the whole call instead
+      // of silently dropping blank entries — a partially-dropped query list
+      // would return fewer results than the caller asked for, with no signal.
+      //
+      // The singular `query` alias is not accepted: the Zod object strips
+      // unknown keys before this code runs, so honouring it would create a
+      // branch no transport can reach.
+      const queryList: string[] = Array.isArray(raw.queries)
+        ? (raw.queries as string[])
+        : [];
+      const blankQuery = queryList.some((q) => typeof q !== "string" || q.trim().length === 0);
 
-      if (queryList.length === 0) {
+      if (queryList.length === 0 || blankQuery) {
         return trackResponse("ctx_search", {
-          content: [{ type: "text" as const, text: "Error: provide query or queries." }],
+          content: [{
+            type: "text" as const,
+            text: "Error: provide `queries` — a non-empty array of non-blank search strings, e.g. ctx_search(queries: [\"root cause\"]).",
+          }],
           isError: true,
         });
       }
 
-      const { limit = 3, source, contentType, project } = params as {
-        limit?: number;
+      const { source, contentType, project } = params as {
         source?: string;
         contentType?: "code" | "prose";
         project?: string;
       };
+      // Default mirrors the schema default (2) and the clamp below — one
+      // number documented in three places, kept in sync deliberately.
+      const limit = (params as { limit?: number }).limit ?? 2;
 
       // Resolve the per-project scope (#737). When shared-DB mode is off the
       // resolver returns `undefined` and `project` is silently ignored — the
@@ -2650,10 +2678,12 @@ EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], so
         });
       }
 
-      // Determine per-query result limit based on throttle level
+      // Determine per-query result limit based on throttle level.
+      // MAX_RESULTS_PER_QUERY is the hard ceiling for normal mode; the schema
+      // advertises the same value (default 2, "maximum: 2").
       const effectiveLimit = flood.softCapped
         ? 1 // after soft cap: only 1 result per query
-        : Math.min(limit, 2); // normal: max 2
+        : Math.min(limit, MAX_RESULTS_PER_QUERY); // normal: max MAX_RESULTS_PER_QUERY
 
       const MAX_TOTAL = 40 * 1024; // 40KB total cap
       let totalSize = 0;
@@ -3408,6 +3438,8 @@ server.registerTool(
     },
     description: `Fetch one or more web resources into a searchable index without returning raw pages.
 
+Provide at least one input: \`url\` (single) or \`requests\` (batch array). Calls with neither are rejected.
+
 WHEN:
   - You need documentation, changelogs, API references, specifications, JSON, or plain text from URLs
   - You need several independent URLs fetched concurrently through \`requests\`
@@ -3421,8 +3453,11 @@ RETURNS:
   Per-source preview windows, source labels, chunk counts, and cache state. Use ctx_search for complete focused passages.
 
 EXAMPLE: ctx_fetch_and_index(requests: [{url: "https://react.dev/", source: "react"}, {url: "https://vuejs.org/", source: "vue"}], concurrency: 2)`,
+    // NOTE: the "at least one input" rule stays in the handler — a
+    // .refine()/z.union() wrapper would collapse the advertised JSON Schema
+    // to properties:{} and break every strict client (#563).
     inputSchema: z.object({
-      url: z.string().optional().describe("Single URL to fetch and index (legacy single-shape)"),
+      url: z.string().optional().describe("Single URL to fetch and index (legacy single-shape; `requests` wins when both are provided)"),
       source: z
         .string()
         .optional()
@@ -3441,7 +3476,7 @@ EXAMPLE: ctx_fetch_and_index(requests: [{url: "https://react.dev/", source: "rea
         )
         .optional()
         .describe(
-          "Batch shape: array of {url, source?} entries. Use with concurrency>1 for parallel fetch. " +
+          "Batch shape: array of {url, source?} entries (at least one). Use with concurrency>1 for parallel fetch. " +
           "Each request indexed under its own source label. Output preserves input order.",
         ),
       concurrency: z
@@ -3473,8 +3508,9 @@ EXAMPLE: ctx_fetch_and_index(requests: [{url: "https://react.dev/", source: "rea
     }),
   },
   async ({ url, source, requests, concurrency, force, ttl }) => {
-    // Normalize input: legacy {url} or new {requests: [...]}.
-    // requests wins when both are provided (explicit batch intent).
+    // At-least-one-input rule (#P1). Enforced here because the schema cannot
+    // express it without breaking the advertised parameter list (#563).
+    // `requests` wins when both shapes are provided (explicit batch intent).
     const batch: { url: string; source?: string }[] = requests
       ? requests
       : url
@@ -3485,7 +3521,7 @@ EXAMPLE: ctx_fetch_and_index(requests: [{url: "https://react.dev/", source: "rea
       return trackResponse("ctx_fetch_and_index", {
         content: [{
           type: "text" as const,
-          text: "ctx_fetch_and_index requires either `url` (single) or `requests: [{url, source?}, ...]` (batch).",
+          text: "Error: ctx_fetch_and_index needs at least one input — `url` (single) or `requests: [{url, source?}, ...]` (batch).",
         }],
         isError: true,
       });
@@ -3705,9 +3741,9 @@ EXAMPLE: ctx_batch_execute(commands: [{label: "issues", command: "gh issue list 
         .array(z.string())
         .min(1)
         .describe(
-          "Search queries to extract information from indexed output. Use 5-8 comprehensive queries. " +
-          "Each returns top 5 matching sections with full content. " +
-          "This is your ONLY chance — put ALL your questions here. No follow-up calls needed.",
+          "Search queries to extract information from indexed output. Use one or more focused queries; " +
+          "batch related questions when useful. Each returns top 5 matching sections with full content. " +
+          "You can use ctx_search for later focused lookups.",
         )),
       timeout: z
         .coerce.number()

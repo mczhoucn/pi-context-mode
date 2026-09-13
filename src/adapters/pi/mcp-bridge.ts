@@ -944,11 +944,19 @@ const PI_TOOL_PROMPT_METADATA: Record<string, PiPromptMetadata> = {
 
 /** Only effective (successfully installed) Pi Bash replacements select this.
  * Shared MCP descriptions and disabled Pi registrations remain unchanged.
+ *
+ * When `routeAllShell` is true the native Bash replacement is EFFECTIVE, so the
+ * host's Bash routing policy is "every command goes through ctx_execute / Bash
+ * is recovery only". The generic MCP description's
+ * "small results, file mutations, navigation → native host tools" branch would
+ * contradict that policy inside the same wire payload, so the Pi override must
+ * state the routing rule explicitly. When `routeAllShell` is false the native
+ * Bash tool is a normal tool and the generic description is correct as-is.
  */
 export function piToolPresentation(name: string, description: string, routeAllShell = false): PiPromptMetadata & { description: string } {
   if (routeAllShell && name === "ctx_execute") {
     return {
-      description: CLI_FIRST_GUIDANCE + " Run one command or analyze data in context-mode. Use for ALL shell commands, including small output, navigation and persistent filesystem mutations. For shell set language='shell'; code may contain an explicit dependent chain such as cmd1 && cmd2. cwd selects the working directory; filesystem side effects persist. Print focused findings for large output; intent indexes output for later search. Native bash is only a recovery channel when context-mode fails. Never automatically retry a failed command: side effects may already have occurred. This is not a native Bash-equivalent terminal or a rollback sandbox.",
+      description: CLI_FIRST_GUIDANCE + " In Pi, run ALL shell commands here — including small output, navigation, and filesystem mutations. Keep dependent success-gated commands in ONE chain (cmd1 && cmd2); use ctx_batch_execute for several independent commands or output collection/search. Set language='shell'; cwd selects the working directory and side effects persist. Only printed findings enter the conversation; intent indexes large output for later search. Native bash is a recovery channel only when context-mode is unavailable or has failed. Never automatically retry a failed ctx command: inspect possible prior side effects first. Not a Bash-equivalent terminal or a rollback sandbox.",
       promptSnippet: "Run all single shell commands and dependent chains; analyze data",
       promptGuidelines: ["Use ctx_execute for every single shell command or dependent chain, regardless of output size or mutations. Use ctx_batch_execute for suitable output collection/search, not dependent transactions. After failure inspect possible side effects before any retry; native bash is recovery only."],
     };

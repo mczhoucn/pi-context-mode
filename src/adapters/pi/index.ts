@@ -228,7 +228,29 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
     // to ~/.pi/extensions/context-mode/package.json. No-op here.
   }
 
+  /**
+   * Pi routing summary for `context-mode setup`-style writers.
+   *
+   * Lists all SIX agent-facing ctx_* tools grouped by workflow instead of a
+   * bare name list: the previous text omitted `ctx_index`, so a host that
+   * pasted this summary lost the local-indexing entry point entirely. Each
+   * bullet names the step it belongs to (gather → index → retrieve) so the
+   * summary does not read as "call every tool on every task", and the closing
+   * line states the scope — this is the preferred core set, not the full tool
+   * catalog.
+   */
   getRoutingInstructions(): string {
-    return "# context-mode\n\nUse context-mode MCP tools (ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_fetch_and_index, ctx_search) instead of inline shell/HTTP calls for data-heavy operations.";
+    return (
+      "# context-mode\n\n" +
+      "Prefer context-mode MCP tools over inline shell/HTTP calls for data-heavy operations. " +
+      "Pick the tool that matches the current step — these are alternatives, not a checklist:\n" +
+      "- ctx_execute: one command or one data transformation; only printed findings enter context.\n" +
+      "- ctx_batch_execute: several related commands whose output you want collected and searched; follow up with ctx_search.\n" +
+      "- ctx_execute_file: analyze or summarize one file without loading its raw bytes.\n" +
+      "- ctx_fetch_and_index: fetch web pages or documentation into the index; then ctx_search.\n" +
+      "- ctx_index: index local files, directories, or inline reference material; then ctx_search.\n" +
+      "- ctx_search: retrieve previously indexed material and session memory.\n" +
+      "\nThese are the default core tools to prefer, not the complete tool list; the actual tool definitions remain authoritative."
+    );
   }
 }

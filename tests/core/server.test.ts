@@ -6802,3 +6802,112 @@ describe("ctx_* MCP tool annotations (#846)", () => {
     }
   });
 });
+
+// ─── P0-2/P0-3/P1: advertised schema ⇄ handler contract ─────────────
+//
+// These tests read the SAME objects that `tools/list` serialises and the SAME
+// handlers the transport invokes. A schema that is looser than the handler
+// (or a handler that is looser than the schema) fails here, which is exactly
+// the drift class these fixes close.
+describe("ctx_* advertised schema matches the handler contract", () => {
+  type AnySchema = {
+    safeParse(v: unknown): { success: boolean };
+    shape: Record<string, { description?: string }>;
+  };
+  const schemaFor = (name: string): AnySchema => {
+    const tool = REGISTERED_CTX_TOOLS.find((t) => t.name === name);
+    expect(tool, `${name} not registered`).toBeDefined();
+    return (tool!.config as { inputSchema: AnySchema }).inputSchema;
+  };
+  /**
+   * Read a field's advertised description. Fields built with
+   * `z.preprocess(fn, inner)` keep the `.description()` on the INNER schema
+   * (`_def.schema`), so a plain `shape[name].description` reads undefined.
+   */
+  const describeOf = (schema: AnySchema, field: string): string => {
+    const outer = schema.shape[field] as unknown as { description?: string; _def?: { schema?: { description?: string } } };
+    return outer?.description ?? outer?._def?.schema?.description ?? "";
+  };
+  const handlerFor = (name: string) => {
+    const tool = REGISTERED_CTX_TOOLS.find((t) => t.name === name)!;
+    return tool.handler as (args: Record<string, unknown>) => Promise<{ isError?: boolean; content?: Array<{ text?: string }> }>;
+  };
+  const textOf = (r: { content?: Array<{ text?: string }> }) => r.content?.[0]?.text ?? "";
+
+  test("ctx_search schema rejects no-query calls the handler also rejects", async () => {
+    const schema = schemaFor("ctx_search");
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ queries: [] }).success).toBe(false);
+    expect(schema.safeParse({ queries: [""] }).success).toBe(false);
+    expect(schema.safeParse({ queries: ["ok"] }).success).toBe(true);
+
+    // Handler-level backstop stays in place for callers that reach it without
+    // a transport parse (the OpenCode native path parses, but the handler must
+    // not silently search for nothing if a future caller does not). A blank
+    // entry must fail the WHOLE call rather than be dropped silently — dropping
+    // it would return fewer results than requested with no signal.
+    const empty = await handlerFor("ctx_search")({});
+    expect(empty.isError).toBe(true);
+    expect(textOf(empty)).toMatch(/provide `queries`/i);
+
+    const blank = await handlerFor("ctx_search")({ queries: ["  "] });
+    expect(blank.isError).toBe(true);
+    expect(textOf(blank)).toMatch(/non-blank/i);
+  });
+
+  test("ctx_search limit contract: default 2 and the handler clamps to 2", async () => {
+    const schema = schemaFor("ctx_search");
+    expect(describeOf(schema, "limit")).toContain("default: 2");
+    expect(describeOf(schema, "queries")).toMatch(/at least one/i);
+    // The clamp constant is the single source of truth the description mirrors.
+    const serverSrc = readFileSync(resolve(__dirname, "../../src/server.ts"), "utf-8");
+    expect(serverSrc).toMatch(/const MAX_RESULTS_PER_QUERY = 2;/);
+    expect(serverSrc).toMatch(/Math\.min\(limit, MAX_RESULTS_PER_QUERY\)/);
+  });
+
+  test("ctx_batch_execute no longer claims a single shot or demands 5-8 queries", async () => {
+    const described = describeOf(schemaFor("ctx_batch_execute"), "queries");
+    expect(described).not.toMatch(/ONLY chance/i);
+    expect(described).not.toMatch(/5-8/);
+    expect(described).toMatch(/one or more focused queries/i);
+    // Real semantics preserved: batch output is indexed for later retrieval.
+    expect(described).toMatch(/ctx_search/);
+    expect(described).toMatch(/indexed output/i);
+  });
+
+  test("ctx_index documents and enforces at-least-one input (content | path)", async () => {
+    const schema = schemaFor("ctx_index");
+    expect(describeOf(schema, "content")).toMatch(/at least one is required/i);
+    expect(describeOf(schema, "path")).toMatch(/at least one is required/i);
+    const tool = REGISTERED_CTX_TOOLS.find((t) => t.name === "ctx_index")!;
+    const description = String((tool.config as { description: string }).description);
+    expect(description).toMatch(/at least one input/i);
+
+    const noInput = await handlerFor("ctx_index")({});
+    expect(noInput.isError).toBe(true);
+    expect(textOf(noInput)).toMatch(/at least one input/i);
+  });
+
+  test("ctx_fetch_and_index documents and enforces at-least-one input (url | requests)", async () => {
+    const schema = schemaFor("ctx_fetch_and_index");
+    const tool = REGISTERED_CTX_TOOLS.find((t) => t.name === "ctx_fetch_and_index")!;
+    const description = String((tool.config as { description: string }).description);
+    expect(description).toMatch(/at least one input/i);
+    expect(describeOf(schema, "url")).toMatch(/legacy single-shape/i);
+    expect(describeOf(schema, "requests")).toMatch(/at least one/i);
+
+    const noInput = await handlerFor("ctx_fetch_and_index")({});
+    expect(noInput.isError).toBe(true);
+    expect(textOf(noInput)).toMatch(/at least one input/i);
+  });
+
+  test("no ctx_* schema wraps its inputSchema in ZodEffects (#563 regression guard)", () => {
+    for (const tool of REGISTERED_CTX_TOOLS) {
+      const schema = (tool.config as { inputSchema?: AnySchema }).inputSchema;
+      if (!schema) continue;
+      // A ZodEffects/union has no `.shape`, so the SDK would advertise
+      // properties:{} and strict clients would reject every call.
+      expect(Object.keys(schema.shape ?? {}).length, `${tool.name} has an empty/undetectable shape`).toBeGreaterThan(0);
+    }
+  });
+});

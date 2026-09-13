@@ -23,11 +23,12 @@ Search indexed content without rereading raw sources into conversation context.
 ctx_search({
   source: "project:<name>",
   queries: ["authentication middleware", "token refresh"],
-  limit: 5
+  // The MCP tool returns at most 2 excerpts per query (limit > 2 is clamped).
+  limit: 2
 })
 ```
 
-5. If MCP tools are unavailable, fall back to the CLI:
+5. If MCP tools are unavailable, fall back to the CLI (the CLI has no per-query cap):
 
 ```bash
 context-mode search "authentication middleware" --source project:<name> --limit 5

@@ -1485,6 +1485,19 @@ describe("Pi MCP bridge (#426)", () => {
       expect(registered.find((reg) => reg.name === "ctx_execute")?.description)
         .toContain('language: "shell"');
 
+      // P1: with routeAllShell OFF the native Bash tool is a normal tool, so
+      // the generic MCP descriptions must pass through untouched. No Pi-only
+      // "everything goes through ctx_execute" wording may leak into the
+      // disabled state — that would contradict the still-advertised Bash.
+      const serverTools = await bridge!.client!.listTools();
+      const executeDisabled = registered.find((reg) => reg.name === "ctx_execute")!;
+      const serverExecute = serverTools.find((t) => t.name === "ctx_execute")!;
+      expect(executeDisabled.description).toBe(serverExecute.description);
+      expect(executeDisabled.description).not.toMatch(/In Pi, run ALL shell commands here/i);
+      for (const reg of registered) {
+        expect(reg.description).not.toMatch(/In Pi, run ALL shell commands here/i);
+      }
+
       const batchGuidance = registered
         .find((reg) => reg.name === "ctx_batch_execute")
         ?.promptGuidelines?.join(" ") ?? "";
@@ -1515,6 +1528,18 @@ describe("Pi MCP bridge (#426)", () => {
         expect(tool.description).not.toBe(serverTools.find(t => t.name === name)?.description);
         expect(tool.promptGuidelines.join(" ")).toContain("retry");
       }
+      // P1: the ACTIVE state must state the Pi routing rule explicitly and must
+      // NOT carry the generic "use native host tools" branch that would
+      // contradict the Bash recovery-channel policy in the same wire payload.
+      const execute = registered.find(t => t.name === "ctx_execute")!;
+      expect(execute.description).toMatch(/In Pi, run ALL shell commands here/i);
+      expect(execute.description).toMatch(/small output, navigation, and filesystem mutations/i);
+      expect(execute.description).toMatch(/ctx_batch_execute for several independent commands/i);
+      expect(execute.description).toMatch(/dependent success-gated commands in ONE chain/i);
+      expect(execute.description).toMatch(/Native bash is a recovery channel only/i);
+      expect(execute.description).toMatch(/Never automatically retry/i);
+      expect(execute.description).not.toMatch(/use native host tools/i);
+      // Pi-native snippet list and rules are shared with the disabled state.
       const read = registered.find(t => t.name === "ctx_execute_file");
       expect(read.description).toBe(serverTools.find(t => t.name === "ctx_execute_file")?.description);
     }, 30_000);

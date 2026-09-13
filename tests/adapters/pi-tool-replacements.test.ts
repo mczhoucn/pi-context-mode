@@ -167,13 +167,24 @@ describe("native replacement installation and routing", () => {
   it("Pi descriptions and prompt metadata agree only for effective Bash policy", () => {
     for (const name of ["ctx_execute", "ctx_batch_execute"]) {
       const disabled = piToolPresentation(name, "original");
+      // OFF: the generic MCP description passes through byte-for-byte, so the
+      // still-callable native Bash stays a normal tool with no contradiction.
       expect(disabled.description).toBe("original");
       const enabled = piToolPresentation(name, "original", true);
       expect(enabled.description).toMatch(/side effects/);
       expect(enabled.description).toMatch(/Native bash/);
       expect(enabled.promptGuidelines?.join(" ")).toMatch(/retry/);
+      // ON: the override must replace, never augment, the generic text.
+      expect(enabled.description).not.toBe("original");
+      expect(enabled.description.length).toBeLessThanOrEqual(1000);
     }
+    const onExecute = piToolPresentation("ctx_execute", "original", true);
+    expect(onExecute.description).toMatch(/In Pi, run ALL shell commands here/i);
+    expect(onExecute.description).not.toMatch(/use native host tools/i);
     expect(piToolPresentation("ctx_execute_file", "original", true)).toEqual(piToolPresentation("ctx_execute_file", "original"));
+    // A tool that is NOT a shell entry point must never receive the override.
+    expect(piToolPresentation("ctx_index", "original", true).description).toBe("original");
+    expect(piToolPresentation("ctx_search", "original", true).description).toBe("original");
   });
 });
 

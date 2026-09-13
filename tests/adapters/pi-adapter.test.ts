@@ -112,6 +112,43 @@ describe("PiAdapter — Pi platform adapter", () => {
     });
   });
 
+  // ── Routing summary ───────────────────────────────────
+  // P0-1: the summary used to list five tools and silently omitted
+  // ctx_index, so a host pasting it lost the local-indexing entry point.
+
+  describe("routing summary", () => {
+    const CTX_TOOLS = [
+      "ctx_execute",
+      "ctx_batch_execute",
+      "ctx_execute_file",
+      "ctx_fetch_and_index",
+      "ctx_index",
+      "ctx_search",
+    ];
+
+    it("names all six agent-facing ctx_* tools", () => {
+      const text = adapter.getRoutingInstructions();
+      for (const tool of CTX_TOOLS) expect(text).toContain(tool);
+    });
+
+    it("describes workflow pairs instead of a bare name list", () => {
+      const text = adapter.getRoutingInstructions();
+      expect(text).toMatch(/ctx_fetch_and_index[\s\S]{0,80}ctx_search/);
+      expect(text).toMatch(/ctx_index[\s\S]{0,80}ctx_search/);
+      expect(text).toMatch(/ctx_batch_execute[\s\S]{0,120}ctx_search/);
+    });
+
+    it("does not imply every tool is called on every task", () => {
+      const text = adapter.getRoutingInstructions();
+      expect(text).toMatch(/alternatives, not a checklist/i);
+      // Scope statement: the core set is a preference, not the whole catalog.
+      expect(text).toMatch(/not the complete tool list/i);
+      for (const forbidden of [/ONLY chance/i, /every (?:ctx_|tool)/i, /always call/i, /5-8/]) {
+        expect(text).not.toMatch(forbidden);
+      }
+    });
+  });
+
   // ── Hook config (no JSON-stdio hooks for Pi) ──────────
 
   describe("hook config", () => {

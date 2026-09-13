@@ -17,6 +17,26 @@
  *       undefined → no filter
  *       null      → explicit cross-project recall (no filter)
  *       string    → restrict to that project directory
+ *
+ * P0-2 contract fixes:
+ *   - `queries` is REQUIRED with at least one non-empty string. The previous
+ *     `.optional()` accepted `{}` and `{queries: []}` at the wire level and
+ *     only failed inside the handler, so tools/list advertised a call shape
+ *     the runtime always rejected.
+ *   - The singular `query` alias is deliberately NOT declared. It is
+ *     unreachable through the MCP transport: Zod object parsing strips
+ *     unknown keys before the handler runs (verified against the built
+ *     server), so advertising it would document a parameter that cannot work.
+ *   - The `limit` default (2) matches the handler's `Math.min(limit, 2)`
+ *     clamp instead of advertising 3 and silently returning 2.
+ *
+ * IMPORTANT: this schema MUST stay a plain `z.object`. `.refine()`,
+ * `.superRefine()`, `.transform()`, or a top-level `z.union()` produce a
+ * ZodEffects/union that the MCP SDK's `normalizeObjectSchema()` cannot read
+ * `.shape` from, which collapses the advertised JSON Schema to
+ * `{type:"object",properties:{}}` and makes strict clients reject every call
+ * (issue #563; guarded by the class-wide test in tests/core/server.test.ts).
+ * Cross-field rules therefore live in the handler body.
  */
 
 import { z } from "zod";
@@ -75,10 +95,16 @@ export function buildCtxSearchInputSchema(isSharedMode: boolean) {
     : ({} as Record<string, never>);
 
   return z.object({
+    // Required + min(1) + per-item min(1): the wire schema now rejects the
+    // empty-object and empty-array shapes the handler already rejected at
+    // runtime, so tools/list and the handler agree on the same contract.
+    // `.regex(/\S/)` rejects whitespace-only entries too — without it,
+    // `{queries: ["  "]}` passed validation and the handler silently dropped
+    // the entry, turning a malformed call into an empty search.
     queries: z.preprocess(coerceJsonArray, z
-      .array(z.string())
-      .optional()
-      .describe("Array of search queries. Batch ALL questions in one call.")),
+      .array(z.string().min(1).regex(/\S/, "must contain a non-whitespace character"))
+      .min(1)
+      .describe("Array of search queries (at least one, non-blank). Batch related questions in one call.")),
     // limit: z.coerce.number() (not z.number()) — OpenCode's native
     // plugin path delivers tool args straight from the LLM provider's
     // tool-call JSON, where several providers stringify primitives
@@ -87,11 +113,15 @@ export function buildCtxSearchInputSchema(isSharedMode: boolean) {
     // "4" with "Expected number, received string". z.coerce mirrors what
     // ctx_batch_execute / ctx_fetch_and_index / ctx_execute already do.
     // Fixes #627.
+    //
+    // Default 2 (not 3): the handler clamps normal-mode calls with
+    // `Math.min(limit, 2)`, so advertising 3 documented a value the server
+    // silently reduced.
     limit: z
       .coerce.number()
       .optional()
-      .default(3)
-      .describe("Results per query (default: 3)"),
+      .default(2)
+      .describe("Results per query (default: 2, maximum: 2)"),
     source: z
       .string()
       .optional()

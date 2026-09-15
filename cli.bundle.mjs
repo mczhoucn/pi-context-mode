@@ -1050,16 +1050,16 @@ WHEN NOT:
 RETURNS:
   Ranked excerpts for each query, with source metadata and staleness notices where available. At most 2 excerpts per query.
 
-EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], source: "issue-683")`,inputSchema:fR(lx)},async t=>{try{let e=Zn(),n=t.sort||"relevance";if(n!=="timeline"&&e.getStats().chunks===0)return Y("ctx_search",{content:[{type:"text",text:`Knowledge base is empty \u2014 no content has been indexed yet.
+EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], source: "issue-683")`,inputSchema:fR(lx)},async t=>{try{let e=t,n=Array.isArray(e.queries)?e.queries:[],r=n.some($=>typeof $!="string"||$.trim().length===0);if(n.length===0||r)return Y("ctx_search",{content:[{type:"text",text:'Error: provide `queries` \u2014 a non-empty array of non-blank search strings, e.g. ctx_search(queries: ["root cause"]).'}],isError:!0});let o=Zn(),s=t.sort||"relevance";if(s!=="timeline"&&o.getStats().chunks===0)return Y("ctx_search",{content:[{type:"text",text:`Knowledge base is empty \u2014 no content has been indexed yet.
 
 ctx_search is a follow-up tool that queries previously indexed content. To gather and index content first, use:
   \u2022 ctx_batch_execute(commands, queries) \u2014 run commands, auto-index output, and search in one call
   \u2022 ctx_fetch_and_index(url) \u2014 fetch a URL, index it, then search with ctx_search
   \u2022 ctx_index(content, source) \u2014 manually index text content
 
-After indexing, ctx_search becomes available for follow-up queries.`}],isError:!0});let r=t,o=Array.isArray(r.queries)?r.queries:[],s=o.some($=>typeof $!="string"||$.trim().length===0);if(o.length===0||s)return Y("ctx_search",{content:[{type:"text",text:'Error: provide `queries` \u2014 a non-empty array of non-blank search strings, e.g. ctx_search(queries: ["root cause"]).'}],isError:!0});let{source:i,contentType:a,project:c}=t,u=t.limit??2,l=hR(c,lx,()=>ft()),d=Date.now(),m=h4.record(g4(),d),h=m.count;if(m.blocked)return Y("ctx_search",{content:[{type:"text",text:`BLOCKED: ${h} search calls in ${Math.round((d-m.windowStart)/1e3)}s. You're flooding context. STOP making individual search calls. Use ctx_batch_execute(commands, queries) for your next research step.`}],isError:!0});let p=m.softCapped?1:Math.min(u,f4),f=40*1024,g=0,y=[],_=null;if(n==="timeline"||typeof l=="string")try{let $=Xe(),N=ft(),R=us({projectDir:N,sessionsDir:$});Ke(R)&&(_=new Jt({dbPath:R}))}catch{}let b;if(typeof l=="string"&&_)try{b=new Set(_.getSessionIdsForProject(l))}catch{}let T=Tn?.getConfigDir()??Ze();try{for(let $ of o){if(g>f){y.push(`## ${$}
+After indexing, ctx_search becomes available for follow-up queries.`}],isError:!0});let{source:i,contentType:a,project:c}=t,u=t.limit??2,l=hR(c,lx,()=>ft()),d=Date.now(),m=h4.record(g4(),d),h=m.count;if(m.blocked)return Y("ctx_search",{content:[{type:"text",text:`BLOCKED: ${h} search calls in ${Math.round((d-m.windowStart)/1e3)}s. You're flooding context. STOP making individual search calls. Use ctx_batch_execute(commands, queries) for your next research step.`}],isError:!0});let p=m.softCapped?1:Math.min(u,f4),f=40*1024,g=0,y=[],_=null;if(s==="timeline"||typeof l=="string")try{let $=Xe(),N=ft(),R=us({projectDir:N,sessionsDir:$});Ke(R)&&(_=new Jt({dbPath:R}))}catch{}let b;if(typeof l=="string"&&_)try{b=new Set(_.getSessionIdsForProject(l))}catch{}let T=Tn?.getConfigDir()??Ze();try{for(let $ of n){if(g>f){y.push(`## ${$}
 (output cap reached)
-`);continue}let N;if(n==="timeline"?N=pR({query:$,limit:p,store:e,sort:n,source:i,contentType:a,sessionDB:_,projectDir:ft(),configDir:T,adapter:Tn??void 0,projectScope:l}):N=e.searchWithFallback($,p,i,a,"like",b),N.length===0){y.push(`## ${$}
+`);continue}let N;if(s==="timeline"?N=pR({query:$,limit:p,store:o,sort:s,source:i,contentType:a,sessionDB:_,projectDir:ft(),configDir:T,adapter:Tn??void 0,projectScope:l}):N=o.searchWithFallback($,p,i,a,"like",b),N.length===0){y.push(`## ${$}
 No results found.`);continue}let R=N.map((C,F)=>{let W=C.origin||"current-session",he=C.timestamp?C.timestamp.slice(0,16).replace("T"," "):"",Le=`--- [${W}${he?" | "+he:""} | ${C.source}] ---`,ot=`### ${C.title}`,Vt=Ex(C.content,$,1500,C.highlighted);return`${Le}
 ${ot}
 
@@ -1071,13 +1071,13 @@ ${R}`),g+=R.length}}finally{try{_?.close()}catch{}}let O=y.join(`
 
 ---
 
-`);e.lastRefreshCount>0&&(O=`> Auto-refreshed ${e.lastRefreshCount} stale source${e.lastRefreshCount>1?"s":""} (file changed since indexing).
+`);o.lastRefreshCount>0&&(O=`> Auto-refreshed ${o.lastRefreshCount} stale source${o.lastRefreshCount>1?"s":""} (file changed since indexing).
 
 `+O);let S=Math.max(0,hd-h),P=Math.max(0,Sx-h);if(h>=Sx?O+=`
 
 \u26A0 search call #${h}/${hd} in this window. Results limited to ${p}/query. ${S} call(s) remaining before block. Batch queries: ctx_search(queries: ["q1","q2","q3"]) or use ctx_batch_execute.`:O+=`
 
-> Throttle: call #${h}/${hd} in this window. ${P} call(s) before soft cap. Prefer ctx_search(queries: [...]) array form for multi-query workloads \u2014 it counts as a single call.`,O.trim().length===0){let $=e.listSources(),N=$.length>0?`
+> Throttle: call #${h}/${hd} in this window. ${P} call(s) before soft cap. Prefer ctx_search(queries: [...]) array form for multi-query workloads \u2014 it counts as a single call.`,O.trim().length===0){let $=o.listSources(),N=$.length>0?`
 Indexed sources: ${$.map(R=>`"${R.label}" (${R.chunkCount} sections)`).join(", ")}`:"";return Y("ctx_search",{content:[{type:"text",text:`No results found.${N}`}]})}return Y("ctx_search",{content:[{type:"text",text:O}]})}catch(e){let n=e instanceof Error?e.message:String(e);return Y("ctx_search",{content:[{type:"text",text:`Search error: ${n}`}],isError:!0})}});mx=null,fx=null;S4=1440*60*1e3,FR=3072;Re.registerTool("ctx_fetch_and_index",{title:"Fetch & Index URL(s)",annotations:{readOnlyHint:!1,destructiveHint:!1,idempotentHint:!1,openWorldHint:!0},description:`Fetch one or more web resources into a searchable index without returning raw pages.
 
 Provide at least one input: \`url\` (single) or \`requests\` (batch array). Calls with neither are rejected.

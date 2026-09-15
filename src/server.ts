@@ -2593,27 +2593,6 @@ EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], so
   },
   async (params) => {
     try {
-      const store = getStore();
-      const sort = (params as Record<string, unknown>).sort as string || "relevance";
-
-      // Guard: redirect when the index is empty — ctx_search is a follow-up
-      // tool that requires prior indexing. Skip for timeline mode (SessionDB/auto-memory may have data).
-      if (sort !== "timeline" && store.getStats().chunks === 0) {
-        return trackResponse("ctx_search", {
-          content: [{
-            type: "text" as const,
-            text: "Knowledge base is empty — no content has been indexed yet.\n\n" +
-              "ctx_search is a follow-up tool that queries previously indexed content. " +
-              "To gather and index content first, use:\n" +
-              "  • ctx_batch_execute(commands, queries) — run commands, auto-index output, and search in one call\n" +
-              "  • ctx_fetch_and_index(url) — fetch a URL, index it, then search with ctx_search\n" +
-              "  • ctx_index(content, source) — manually index text content\n\n" +
-              "After indexing, ctx_search becomes available for follow-up queries.",
-          }],
-          isError: true,
-        });
-      }
-
       const raw = params as Record<string, unknown>;
 
       // Schema-validated already: `queries` is required, non-empty, and every
@@ -2636,6 +2615,27 @@ EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], so
           content: [{
             type: "text" as const,
             text: "Error: provide `queries` — a non-empty array of non-blank search strings, e.g. ctx_search(queries: [\"root cause\"]).",
+          }],
+          isError: true,
+        });
+      }
+
+      const store = getStore();
+      const sort = (params as Record<string, unknown>).sort as string || "relevance";
+
+      // Guard: redirect when the index is empty — ctx_search is a follow-up
+      // tool that requires prior indexing. Skip for timeline mode (SessionDB/auto-memory may have data).
+      if (sort !== "timeline" && store.getStats().chunks === 0) {
+        return trackResponse("ctx_search", {
+          content: [{
+            type: "text" as const,
+            text: "Knowledge base is empty — no content has been indexed yet.\n\n" +
+              "ctx_search is a follow-up tool that queries previously indexed content. " +
+              "To gather and index content first, use:\n" +
+              "  • ctx_batch_execute(commands, queries) — run commands, auto-index output, and search in one call\n" +
+              "  • ctx_fetch_and_index(url) — fetch a URL, index it, then search with ctx_search\n" +
+              "  • ctx_index(content, source) — manually index text content\n\n" +
+              "After indexing, ctx_search becomes available for follow-up queries.",
           }],
           isError: true,
         });

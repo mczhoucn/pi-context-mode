@@ -797,16 +797,16 @@ WHEN NOT:
 RETURNS:
   Ranked excerpts for each query, with source metadata and staleness notices where available. At most 2 excerpts per query.
 
-EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], source: "issue-683")`,inputSchema:Qw(kg)},async t=>{try{let e=vn(),n=t.sort||"relevance";if(n!=="timeline"&&e.getStats().chunks===0)return W("ctx_search",{content:[{type:"text",text:`Knowledge base is empty \u2014 no content has been indexed yet.
+EXAMPLE: ctx_search(queries: ["root cause", "proposed fix", "test coverage"], source: "issue-683")`,inputSchema:Qw(kg)},async t=>{try{let e=t,n=Array.isArray(e.queries)?e.queries:[],r=n.some(I=>typeof I!="string"||I.trim().length===0);if(n.length===0||r)return W("ctx_search",{content:[{type:"text",text:'Error: provide `queries` \u2014 a non-empty array of non-blank search strings, e.g. ctx_search(queries: ["root cause"]).'}],isError:!0});let o=vn(),s=t.sort||"relevance";if(s!=="timeline"&&o.getStats().chunks===0)return W("ctx_search",{content:[{type:"text",text:`Knowledge base is empty \u2014 no content has been indexed yet.
 
 ctx_search is a follow-up tool that queries previously indexed content. To gather and index content first, use:
   \u2022 ctx_batch_execute(commands, queries) \u2014 run commands, auto-index output, and search in one call
   \u2022 ctx_fetch_and_index(url) \u2014 fetch a URL, index it, then search with ctx_search
   \u2022 ctx_index(content, source) \u2014 manually index text content
 
-After indexing, ctx_search becomes available for follow-up queries.`}],isError:!0});let r=t,o=Array.isArray(r.queries)?r.queries:[],s=o.some(I=>typeof I!="string"||I.trim().length===0);if(o.length===0||s)return W("ctx_search",{content:[{type:"text",text:'Error: provide `queries` \u2014 a non-empty array of non-blank search strings, e.g. ctx_search(queries: ["root cause"]).'}],isError:!0});let{source:i,contentType:a,project:c}=t,u=t.limit??2,l=eT(c,kg,()=>ct()),d=Date.now(),f=SU.record(kU(),d),m=f.count;if(f.blocked)return W("ctx_search",{content:[{type:"text",text:`BLOCKED: ${m} search calls in ${Math.round((d-f.windowStart)/1e3)}s. You're flooding context. STOP making individual search calls. Use ctx_batch_execute(commands, queries) for your next research step.`}],isError:!0});let p=f.softCapped?1:Math.min(u,xU),h=40*1024,g=0,y=[],_=null;if(n==="timeline"||typeof l=="string")try{let I=Ue(),V=ct(),P=ji({projectDir:V,sessionsDir:I});Le(P)&&(_=new on({dbPath:P}))}catch{}let S;if(typeof l=="string"&&_)try{S=new Set(_.getSessionIdsForProject(l))}catch{}let v=cn?.getConfigDir()??Ct();try{for(let I of o){if(g>h){y.push(`## ${I}
+After indexing, ctx_search becomes available for follow-up queries.`}],isError:!0});let{source:i,contentType:a,project:c}=t,u=t.limit??2,l=eT(c,kg,()=>ct()),d=Date.now(),f=SU.record(kU(),d),m=f.count;if(f.blocked)return W("ctx_search",{content:[{type:"text",text:`BLOCKED: ${m} search calls in ${Math.round((d-f.windowStart)/1e3)}s. You're flooding context. STOP making individual search calls. Use ctx_batch_execute(commands, queries) for your next research step.`}],isError:!0});let p=f.softCapped?1:Math.min(u,xU),h=40*1024,g=0,y=[],_=null;if(s==="timeline"||typeof l=="string")try{let I=Ue(),V=ct(),P=ji({projectDir:V,sessionsDir:I});Le(P)&&(_=new on({dbPath:P}))}catch{}let S;if(typeof l=="string"&&_)try{S=new Set(_.getSessionIdsForProject(l))}catch{}let v=cn?.getConfigDir()??Ct();try{for(let I of n){if(g>h){y.push(`## ${I}
 (output cap reached)
-`);continue}let V;if(n==="timeline"?V=Yw({query:I,limit:p,store:e,sort:n,source:i,contentType:a,sessionDB:_,projectDir:ct(),configDir:v,adapter:cn??void 0,projectScope:l}):V=e.searchWithFallback(I,p,i,a,"like",S),V.length===0){y.push(`## ${I}
+`);continue}let V;if(s==="timeline"?V=Yw({query:I,limit:p,store:o,sort:s,source:i,contentType:a,sessionDB:_,projectDir:ct(),configDir:v,adapter:cn??void 0,projectScope:l}):V=o.searchWithFallback(I,p,i,a,"like",S),V.length===0){y.push(`## ${I}
 No results found.`);continue}let P=V.map((E,U)=>{let pe=E.origin||"current-session",ut=E.timestamp?E.timestamp.slice(0,16).replace("T"," "):"",En=`--- [${pe}${ut?" | "+ut:""} | ${E.source}] ---`,Gu=`### ${E.title}`,ta=MT(E.content,I,1500,E.highlighted);return`${En}
 ${Gu}
 
@@ -818,13 +818,13 @@ ${P}`),g+=P.length}}finally{try{_?.close()}catch{}}let C=y.join(`
 
 ---
 
-`);e.lastRefreshCount>0&&(C=`> Auto-refreshed ${e.lastRefreshCount} stale source${e.lastRefreshCount>1?"s":""} (file changed since indexing).
+`);o.lastRefreshCount>0&&(C=`> Auto-refreshed ${o.lastRefreshCount} stale source${o.lastRefreshCount>1?"s":""} (file changed since indexing).
 
 `+C);let R=Math.max(0,Hu-m),Z=Math.max(0,Ig-m);if(m>=Ig?C+=`
 
 \u26A0 search call #${m}/${Hu} in this window. Results limited to ${p}/query. ${R} call(s) remaining before block. Batch queries: ctx_search(queries: ["q1","q2","q3"]) or use ctx_batch_execute.`:C+=`
 
-> Throttle: call #${m}/${Hu} in this window. ${Z} call(s) before soft cap. Prefer ctx_search(queries: [...]) array form for multi-query workloads \u2014 it counts as a single call.`,C.trim().length===0){let I=e.listSources(),V=I.length>0?`
+> Throttle: call #${m}/${Hu} in this window. ${Z} call(s) before soft cap. Prefer ctx_search(queries: [...]) array form for multi-query workloads \u2014 it counts as a single call.`,C.trim().length===0){let I=o.listSources(),V=I.length>0?`
 Indexed sources: ${I.map(P=>`"${P.label}" (${P.chunkCount} sections)`).join(", ")}`:"";return W("ctx_search",{content:[{type:"text",text:`No results found.${V}`}]})}return W("ctx_search",{content:[{type:"text",text:C}]})}catch(e){let n=e instanceof Error?e.message:String(e);return W("ctx_search",{content:[{type:"text",text:`Search error: ${n}`}],isError:!0})}});var Eg=null,wg=null;function vU(){return Eg||(Eg=ET(import.meta.url).resolve("turndown")),Eg}function EU(){return wg||(wg=ET(import.meta.url).resolve("turndown-plugin-gfm")),wg}function wU(t,e){let n=JSON.stringify(vU()),r=JSON.stringify(EU()),o=JSON.stringify(e),s=Wu.toString(),i=Wu.name||"classifyIp",a=i==="classifyIp"?`var classifyIp = ${s};`:`var ${i} = ${s};
 var classifyIp = ${i};`,c=process.env.CTX_FETCH_STRICT==="1";return`
 const TurndownService = require(${n});

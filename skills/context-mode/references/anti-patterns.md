@@ -4,7 +4,7 @@ Read when diagnosing routing mistakes, missing evidence, empty output, or timeou
 
 ## 1. Choosing tools by line count alone
 
-Guaranteed-small-output Bash whitelist operations can run directly. Data-producing commands still use context-mode under this skill's policy, even if their output looks short. A small file needed for an edit is a normal Read task; analysis of that file belongs in `ctx_execute_file`.
+Use the host's registered tool descriptions and runtime policy for guaranteed-small operations. The Bash whitelist applies only where native Bash is the host's normal command surface; a host-provided recovery policy takes precedence. Data-producing commands still use context-mode under this skill's policy, even if their output looks short. A small file needed for an edit is a normal Read task; analysis of that file belongs in `ctx_execute_file`.
 
 Related CLI commands, command-based research, or command-output gather-and-search use `ctx_batch_execute`. A single command/transformation uses `ctx_execute`. Web references use `ctx_fetch_and_index`, and indexed content uses `ctx_search`, regardless of how many URLs or questions there are.
 

@@ -160,9 +160,10 @@ describe("native replacement installation and routing", () => {
     expect(bashExecute).toHaveBeenCalledExactlyOnceWith("id", args, signal, update, ctx);
     expect(tools[0].description).toContain("recovery");
     expect(tools[0].promptSnippet).toBeUndefined();
-    expect(tools[0].promptGuidelines).toEqual([
-      expect.stringMatching(/bash only as a recovery fallback when ctx_execute is unavailable or has failed/i),
-    ]);
+    const guidance = tools[0].promptGuidelines?.join(" ") ?? "";
+    expect(guidance).toMatch(/bash only as a recovery fallback when context-mode is unavailable or has failed/i);
+    expect(guidance).toMatch(/ctx_execute for a single command or dependent chain/i);
+    expect(guidance).toMatch(/ctx_batch_execute for independent command collection\/search/i);
   });
   it("Pi descriptions and prompt metadata agree only for effective Bash policy", () => {
     for (const name of ["ctx_execute", "ctx_batch_execute"]) {
@@ -179,7 +180,9 @@ describe("native replacement installation and routing", () => {
       expect(enabled.description.length).toBeLessThanOrEqual(1000);
     }
     const onExecute = piToolPresentation("ctx_execute", "original", true);
-    expect(onExecute.description).toMatch(/In Pi, run ALL shell commands here/i);
+    expect(onExecute.description).toMatch(/In Pi, route ALL shell commands through context-mode/i);
+    expect(onExecute.description).toMatch(/ctx_execute here for a single command or dependent chain/i);
+    expect(onExecute.description).toMatch(/ctx_batch_execute for independent command collection\/search/i);
     expect(onExecute.description).not.toMatch(/use native host tools/i);
     expect(piToolPresentation("ctx_execute_file", "original", true)).toEqual(piToolPresentation("ctx_execute_file", "original"));
     // A tool that is NOT a shell entry point must never receive the override.

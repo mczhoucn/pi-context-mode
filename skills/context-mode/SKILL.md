@@ -14,13 +14,13 @@ description: >-
 
 Default to context-mode for ALL commands, file analysis, and large or uncertain tool output. Use Bash only for guaranteed-small whitelist operations below. For files you need to edit, use the normal Read tool for exact text, then host edit/write tools.
 
-### Active Pi Bash policy
+### Host tool routing
 
-When the registered Pi `bash` description marks it as a recovery channel, route **all shell commands** through `ctx_execute` or suitable `ctx_batch_execute`, including the operations below. Use one `ctx_execute` shell chain for dependent commands; batch is output collection/search, not a transaction. Native Bash is reserved for context-mode failure recovery. Inspect possible prior side effects before any retry; never automatically replay a failed command through Bash.
+Use the host's registered tool descriptions and runtime policy as the source of truth for native-tool routing. This skill does not inspect context-mode settings or decide which host routing mode is active. A host-provided recovery policy takes precedence over generic examples below; otherwise follow the host's normal native-tool surface.
 
-### Bash whitelist (other hosts and Pi without the active replacement)
+### Bash whitelist
 
-Use Bash directly for these operations when their output is guaranteed small:
+For a host where native Bash is the normal command surface, use Bash directly for these operations when their output is guaranteed small:
 - File mutations: `mkdir`, `mv`, `cp`, `rm`, `touch`, `chmod`.
 - Git writes: `git add`, `git commit`, `git push`, `git checkout`, `git branch`, `git merge`.
 - Navigation: `cd`, `pwd`, `which`.

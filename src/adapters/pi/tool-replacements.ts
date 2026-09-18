@@ -138,13 +138,13 @@ export function createBoundedRead(
 }
 
 export const BASH_RECOVERY_METADATA = {
-  description: "Native Bash recovery channel only when context-mode is unavailable or has failed. Normally run ALL shell commands, including small output and filesystem mutations, through ctx_execute; use ctx_batch_execute for suitable output collection/search. Native timeout is in seconds. Never automatically retry a failed ctx command here: side effects may already have occurred. Existing permission and HTTP routing guards still apply.",
+  description: "Native Bash recovery channel only when context-mode is unavailable or has failed. Normally route ALL shell commands through context-mode: use ctx_execute for a single command or dependent chain, and ctx_batch_execute for independent command collection/search, including small output and filesystem mutations. Native timeout is in seconds. Never automatically retry a failed ctx command here: side effects may already have occurred. Existing permission and HTTP routing guards still apply.",
   // Pi only lists active tools that provide a prompt snippet. Override the
   // native Bash snippet so the callable recovery channel stays out of the
   // Available/Core tools summary while its policy remains in Guidelines.
   promptSnippet: undefined,
   promptGuidelines: [
-    "Use bash only as a recovery fallback when ctx_execute is unavailable or has failed. Normally route all shell commands through ctx_execute or suitable ctx_batch_execute, regardless of output size or side effects; inspect possible prior side effects before any retry.",
+    "Use bash only as a recovery fallback when context-mode is unavailable or has failed. Normally route all shell commands through context-mode: use ctx_execute for a single command or dependent chain, and ctx_batch_execute for independent command collection/search, regardless of output size or side effects; inspect possible prior effects before any retry.",
   ],
 };
 

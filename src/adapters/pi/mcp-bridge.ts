@@ -946,8 +946,8 @@ const PI_TOOL_PROMPT_METADATA: Record<string, PiPromptMetadata> = {
  * Shared MCP descriptions and disabled Pi registrations remain unchanged.
  *
  * When `routeAllShell` is true the native Bash replacement is EFFECTIVE, so the
- * host's Bash routing policy is "every command goes through ctx_execute / Bash
- * is recovery only". The generic MCP description's
+ * host's Bash routing policy is "all shell work goes through context-mode /
+ * Bash is recovery only". The generic MCP description's
  * "small results, file mutations, navigation → native host tools" branch would
  * contradict that policy inside the same wire payload, so the Pi override must
  * state the routing rule explicitly. When `routeAllShell` is false the native
@@ -956,16 +956,16 @@ const PI_TOOL_PROMPT_METADATA: Record<string, PiPromptMetadata> = {
 export function piToolPresentation(name: string, description: string, routeAllShell = false): PiPromptMetadata & { description: string } {
   if (routeAllShell && name === "ctx_execute") {
     return {
-      description: CLI_FIRST_GUIDANCE + " In Pi, run ALL shell commands here — including small output, navigation, and filesystem mutations. Keep dependent success-gated commands in ONE chain (cmd1 && cmd2); use ctx_batch_execute for several independent commands or output collection/search. Set language='shell'; cwd selects the working directory and side effects persist. Only printed findings enter the conversation; intent indexes large output for later search. Native bash is a recovery channel only when context-mode is unavailable or has failed. Never automatically retry a failed ctx command: inspect possible prior side effects first. Not a Bash-equivalent terminal or a rollback sandbox.",
-      promptSnippet: "Run all single shell commands and dependent chains; analyze data",
-      promptGuidelines: ["Use ctx_execute for every single shell command or dependent chain, regardless of output size or mutations. Use ctx_batch_execute for suitable output collection/search, not dependent transactions. After failure inspect possible side effects before any retry; native bash is recovery only."],
+      description: CLI_FIRST_GUIDANCE + " In Pi, route ALL shell commands through context-mode: use ctx_execute here for a single command or dependent chain, including small output, navigation, and filesystem mutations; use ctx_batch_execute for independent command collection/search. Set language='shell'; cwd selects the working directory and side effects persist. Only printed findings enter the conversation; intent indexes large output for later search. Native bash is a recovery channel only when context-mode is unavailable or has failed. Never automatically retry a failed ctx command: inspect possible prior effects first. Not a Bash-equivalent terminal or a rollback sandbox.",
+      promptSnippet: "Run one shell command or dependent chain; analyze data",
+      promptGuidelines: ["Route shell commands through context-mode: use ctx_execute for a single command or dependent chain, regardless of output size or mutations; use ctx_batch_execute for independent command collection/search. After failure inspect possible prior effects before any retry; native bash is recovery only."],
     };
   }
   if (routeAllShell && name === "ctx_batch_execute") {
     return {
-      description: CLI_FIRST_GUIDANCE + " For custom-code analysis, use ctx_execute. Run several shell commands and search their collected outputs in context-mode. Use for suitable output collection/search regardless of output size; concurrency >1 only for independent commands. Commands can persist filesystem side effects. This is not a transaction: use ctx_execute with an explicit shell chain for commands that depend on prior success. Never automatically retry failed commands via native bash; side effects may already have occurred. Native bash is only for context-mode failure recovery.",
+      description: CLI_FIRST_GUIDANCE + " For custom-code analysis, use ctx_execute. Use ctx_batch_execute for independent shell command collection/search regardless of output size; concurrency >1 only for independent work. Commands can persist filesystem side effects. This is not a transaction: use ctx_execute with an explicit shell chain for commands that depend on prior success. Never automatically retry failed commands via native bash; side effects may already have occurred. Native bash is only for context-mode failure recovery.",
       promptSnippet: "Collect and search several command outputs (not a transaction)",
-      promptGuidelines: ["Use ctx_batch_execute for suitable multi-command output collection/search, with parallelism only for independent work. Keep dependent success-gated commands together in ctx_execute, and inspect partial side effects before any retry."],
+      promptGuidelines: ["Use ctx_batch_execute for independent multi-command output collection/search, with parallelism only for independent work. Keep dependent success-gated commands together in ctx_execute, and inspect partial side effects before any retry."],
     };
   }
   return { description, ...(PI_TOOL_PROMPT_METADATA[name] ?? {}) };

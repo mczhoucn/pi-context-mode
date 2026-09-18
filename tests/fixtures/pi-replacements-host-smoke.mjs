@@ -132,11 +132,11 @@ try {
           "effective Bash replacement must omit Bash from Pi's tool summary");
         if (bash) {
           assert.match(session.systemPrompt,
-            /^- Use bash only as a recovery fallback when ctx_execute is unavailable or has failed\./m);
+            /^- Use bash only as a recovery fallback when context-mode is unavailable or has failed\./m);
           assert.doesNotMatch(session.systemPrompt, /Execute bash commands \(ls, grep, find, etc\.\)/);
         } else {
           assert.doesNotMatch(session.systemPrompt,
-            /Use bash only as a recovery fallback when ctx_execute is unavailable or has failed\./);
+            /Use bash only as a recovery fallback when context-mode is unavailable or has failed\./);
         }
         if (read) {
           const nativeFile = join(cwd, "source"); writeFileSync(nativeFile, lines.join("\n"));

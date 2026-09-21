@@ -714,8 +714,12 @@ describe("Pi Extension", () => {
       try {
         db.insertEvent(legacyKey, { type: "decision", category: "decision", data: "LEGACY UNBOUND SENTINEL", priority: 1 });
         db.insertEvent("native-A", { type: "decision", category: "decision", data: "NATIVE A SENTINEL", priority: 1 });
-        // A first opens under its native key, never the hash of its current path.
+        // Opening an existing transcript does not rebuild context from SessionDB.
+        // An explicit extension reload remains the opt-in repair boundary, and it
+        // must still use the native key rather than the hash of the current path.
         await api._trigger("session_start", { reason: "startup" }, ctx);
+        expect(api.sendMessage).not.toHaveBeenCalled();
+        await api._trigger("session_start", { reason: "reload" }, ctx);
         expect(api.sendMessage).toHaveBeenCalledOnce();
         expect(api.sendMessage.mock.calls[0][0].content).toContain("NATIVE A SENTINEL");
         expect(api.sendMessage.mock.calls[0][0].content).not.toContain("LEGACY UNBOUND");
@@ -740,10 +744,14 @@ describe("Pi Extension", () => {
         api = createMockPiApi(); await registerPiExtension(api);
         host = "native-A"; branch = [{ id: "u1", type: "message" }];
         await api._trigger("session_start", { reason: "resume" }, ctx);
+        expect(api.sendMessage).not.toHaveBeenCalled();
+        await api._trigger("session_start", { reason: "reload" }, ctx);
         expect(api.sendMessage).toHaveBeenCalledOnce();
         expect(api.sendMessage.mock.calls[0][0].content).toContain("NATIVE A SENTINEL");
         file = join(tempDir, "moved.jsonl");
         await api._trigger("session_start", { reason: "resume" }, ctx);
+        expect(api.sendMessage).toHaveBeenCalledOnce();
+        await api._trigger("session_start", { reason: "reload" }, ctx);
         expect(api.sendMessage).toHaveBeenCalledTimes(2);
         const moved = api.sendMessage.mock.calls[1][0];
         expect(moved.content).toContain("NATIVE A SENTINEL");
@@ -780,7 +788,7 @@ describe("Pi Extension", () => {
       const store = new ContentStore(join(tempDir, "content.db"));
       try {
         expect(db.getEvents(key).filter(e => e.type === "user_prompt").map(e => e.data)).toEqual(prompts);
-        await api._trigger("session_start", { reason: "resume" }, ctx);
+        await api._trigger("session_start", { reason: "reload" }, ctx);
         expect(api.sendMessage).toHaveBeenCalledOnce();
         const text = api.sendMessage.mock.calls[0][0].content;
         expect(text).toContain(prompts.at(-1));

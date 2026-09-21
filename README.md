@@ -249,14 +249,15 @@ The status line reports cache performance separately: hits, data avoided, networ
 Pi captures genuine user prompts and supported tool events in a per-project SQLite database under `~/.pi/context-mode/`. Recovery happens at **lifecycle boundaries**, not on every prompt:
 
 - **New/empty session:** no historical recovery, including other sessions in the same project.
-- **Startup/resume/reload of an existing session:** restore only its own available events using the baseline policy.
+- **Startup/resume of an existing session:** trust Pi's native transcript; do not read or inject a second historical recovery. Pi may report an initial `--continue`/`--resume` as `startup`, so an already-populated conversational branch follows the same no-injection rule.
+- **Explicit extension reload:** may rebuild the current session's recovery as a repair boundary; this is not part of normal resume.
 - **Before compaction:** prepare only; cancellation/failure does not replace the existing recovery.
 - **Successful compaction:** persist one hidden `context-mode-recovery` custom message using `triggerTurn:false`. During an active turn, supported Pi hosts flush it after `turn_end`, before the next model call; no extra user prompt or agent run is needed.
 - **Subsequent model calls:** retain that message without rebuilding/appending copies. Context filtering removes superseded owned messages; an empty replacement also retires the old recovery. Other extensions' messages and tool/result ordering stay intact.
 
 Session history is append-only. Old custom messages remain in the transcript but are not current recovery. Historical errors, environment and subagent records are evidence, **not live state, unresolved-status guarantees or authorization**. Persistent messages still use context tokens on later calls.
 
-Capture, recovery and statistics use Pi's native `sessionManager.getSessionId()` directly. Normal reopen/resume retains that ID; moving a session file can rebuild its own recovery with fresh file/branch provenance. Missing host identity or a persistent session file disables recovery. Ambiguous same-session branches/forks/tree navigation conservatively omit rebuilding from session-wide events. Pi does not need Claude's cross-ID latest-snapshot fallback for normal resume. Missing helpers or provenance fail safely rather than guessing; `/ctx-doctor` reports lifecycle-owned recovery.
+Capture, recovery and statistics use Pi's native `sessionManager.getSessionId()` directly. Normal reopen/resume retains that ID and does not rebuild historical recovery; an explicit extension reload can rebuild its own recovery with fresh file/branch provenance. Missing host identity or a persistent session file disables recovery. Ambiguous same-session branches/forks/tree navigation conservatively omit rebuilding from session-wide events. Pi does not need Claude's cross-ID latest-snapshot fallback for normal resume. Missing helpers or provenance fail safely rather than guessing; `/ctx-doctor` reports lifecycle-owned recovery.
 
 **Legacy limitation:** old path-hash database rows have no native-ID binding and are not automatically read or migrated for recovery. Existing retention is unchanged; no migration deletes history. Native Pi transcripts and summaries remain intact. Old version-1 context-mode recovery bodies are filtered out of model context, not removed from the append-only transcript. New recovery uses version-2 provenance.
 
@@ -281,9 +282,9 @@ Default: **off**. Add to context-mode's own settings (not generic Pi settings):
 
 Explicit project fields override global fields. Invalid explicit configuration in either tier, or malformed/unreadable settings, disables trimming with a non-disruptive warning. Missing files/fields use defaults/inheritance. Existing `toolReplacements` settings are independent.
 
-The flag delegates a fixed set of categories to Blackhole **only after successful compaction**. Startup/resume always uses baseline. It neither detects nor configures Blackhole, performs semantic deduplication, nor makes model calls. Enable it only if you accept missing information when Blackhole omits/truncates it; even its minimal tail does not always preserve the latest request.
+The flag delegates a fixed set of categories to Blackhole **only after successful compaction**. Normal startup/resume does not project historical categories at all; an explicit reload uses the baseline profile, while compact uses the table below. It neither detects nor configures Blackhole, performs semantic deduplication, nor makes model calls. Enable it only if you accept missing information when Blackhole omits/truncates it; even its minimal tail does not always preserve the latest request.
 
-| Recovery information | Startup/resume, either flag; compact flag off | Compact flag on |
+| Recovery information | Baseline projection (reload or compact flag off) | Trimmed compact projection |
 |---|---|---|
 | Historical role/persona, heuristic intent/workmode, Claude plan state | Exclude | Exclude |
 | Duplicated task snapshots | Do not add | Do not add |

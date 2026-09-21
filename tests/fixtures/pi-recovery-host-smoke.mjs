@@ -45,8 +45,9 @@ try {
     assert.equal(manager.getSessionId(), ${JSON.stringify(nativeID)});
     const db = new SessionDB({ dbPath: ${JSON.stringify(identityDBPath)} });
     let sends = 0;
+    let reads = 0;
     const recovery = new PiRecovery({
-      events: key => { assert.equal(key, manager.getSessionId()); return db.getEvents(key); },
+      events: key => { reads++; assert.equal(key, manager.getSessionId()); return db.getEvents(key); },
       blackhole: () => false,
       render: (events, reason, flag) => renderRecovery(${JSON.stringify(resolve('.'))}, events, reason, flag),
       send: (message, options) => {
@@ -61,6 +62,10 @@ try {
       warn: message => { throw new Error(message); },
     });
     await recovery.activate('resume', { sessionManager: manager });
+    assert.equal(reads, 0, 'resume trusts Pi native transcript and does not read historical events');
+    assert.equal(sends, 0, 'resume does not append a recovery message');
+    await recovery.activate('reload', { sessionManager: manager });
+    assert.equal(reads, 1);
     assert.equal(sends, 1);
     assert.equal(recovery.filter(manager.buildSessionContext().messages, { sessionManager: manager })
       .filter(m => m.customType === 'context-mode-recovery').length, 1);
@@ -172,15 +177,20 @@ try {
   const paired = [{ role: 'assistant', content: [{ type: 'toolCall', id: 't', name: 'read', arguments: { path: 'x' } }] }, { role: 'toolResult', toolCallId: 't', toolName: 'read', content: [{ type: 'text', text: 'result' }], isError: false, timestamp: 1 }];
   const ordered = await session._extensionRunner.emitContext([...paired, unrelated, ...both]);
   assert.deepEqual(ordered.slice(0, 3), [...paired, unrelated]);
-  // Resume reprojects baseline once; reload is idempotent.
+  // Resume trusts the persisted native transcript; an explicit extension reload
+  // remains the repair boundary and is idempotent after delivery.
   await session._extensionRunner.emit({ type: 'session_start', reason: 'resume' });
-  const count = session.sessionManager.getBranch().filter(e => e.customType === 'context-mode-recovery').length;
+  const afterResume = session.sessionManager.getBranch().filter(e => e.customType === 'context-mode-recovery').length;
+  assert.equal(afterResume, 2);
   await session._extensionRunner.emit({ type: 'session_start', reason: 'reload' });
-  assert.equal(session.sessionManager.getBranch().filter(e => e.customType === 'context-mode-recovery').length, count);
+  const afterReload = session.sessionManager.getBranch().filter(e => e.customType === 'context-mode-recovery').length;
+  assert.equal(afterReload, afterResume + 1);
+  await session._extensionRunner.emit({ type: 'session_start', reason: 'reload' });
+  assert.equal(session.sessionManager.getBranch().filter(e => e.customType === 'context-mode-recovery').length, afterReload);
   // Opt-in compact trimming removes the sole file event; empty replacement
   // must still retire all older generations.
   mkdirSync(join(scratch, '.pi/context-mode'), { recursive: true });
-  writeFileSync(join(scratch, '.pi/context-mode/settings.json'), JSON.stringify({ recovery: { blackhole: { enabled: true } } }));
+  writeFileSync(join(scratch, '.pi/context-mode/settings.json'), JSON.stringify({ extensionAdapters: { blackhole: { enabled: true } } }));
   await session._extensionRunner.emit({ type: 'session_before_compact' });
   const thirdId = session.sessionManager.appendCompaction('third summary', entry.id, 1000, undefined, true);
   await session._extensionRunner.emit({ type: 'session_compact', compactionEntry: session.sessionManager.getEntry(thirdId), fromExtension: true });

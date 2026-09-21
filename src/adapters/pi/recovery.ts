@@ -39,7 +39,14 @@ export interface RecoveryManager {
   getEntries(): Entry[];
 }
 export interface RecoveryContext { sessionManager?: RecoveryManager }
-interface Identity { key: string; file: string; host: string; branch: Entry[]; ids: Set<string>; segment: string; unambiguous: boolean }
+interface SessionKey { file: string; host: string }
+interface Identity extends SessionKey {
+  key: string;
+  branch: Entry[];
+  ids: Set<string>;
+  segment: string;
+  unambiguous: boolean;
+}
 interface Provenance { version: 2; file: string; host: string; boundary: string; segment: string; reason: RecoveryReason; profile: "baseline" | "blackhole" }
 interface Message { role?: string; customType?: string; details?: unknown; content?: unknown }
 interface Dependencies {
@@ -50,6 +57,25 @@ interface Dependencies {
   warn(message: string): void;
 }
 const owned = (e: { customType?: string }) => e.customType === RECOVERY_TYPE;
+function sessionKey(ctx: RecoveryContext): SessionKey | undefined {
+  try {
+    const manager = ctx.sessionManager;
+    const file = manager?.getSessionFile();
+    const host = readPiSessionId(ctx);
+    if (!manager || typeof file !== "string" || !file.trim() || !host) return;
+    return { file, host };
+  } catch { return; }
+}
+function isNativeConversationEntry(entry: Entry): boolean {
+  return entry.type === "message" || entry.type === "compaction" ||
+    entry.type === "custom_message" || entry.type === "branch_summary";
+}
+function hasNativeConversation(ctx: RecoveryContext): boolean {
+  try {
+    const branch = ctx.sessionManager?.getBranch();
+    return !!branch?.some(isNativeConversationEntry);
+  } catch { return false; }
+}
 function metadata(value: unknown): Provenance | undefined {
   if (!value || typeof value !== "object") return;
   const p = value as Provenance;
@@ -60,45 +86,62 @@ function metadata(value: unknown): Provenance | undefined {
 function identity(ctx: RecoveryContext): Identity | undefined {
   try {
     const manager = ctx.sessionManager;
-    const file = manager?.getSessionFile();
-    const host = readPiSessionId(ctx);
-    if (!manager || typeof file !== "string" || !file.trim() || !host) return;
+    const key = sessionKey(ctx);
+    if (!manager || !key) return;
     const branch = manager.getBranch();
-    const ids = new Set(branch.map(e => e.id));
+    const ids = new Set<string>();
+    let latestCompaction: string | undefined;
+    for (const entry of branch) {
+      ids.add(entry.id);
+      if (entry.type === "compaction") latestCompaction = entry.id;
+    }
     // SessionDB rows have no branch provenance. Any divergent history makes
     // rebuilding from those rows unsafe, even if a sibling looks irrelevant.
     const unambiguous = manager.getEntries().every(e => ids.has(e.id));
-    return { file, host, branch, ids, segment: branch.filter(e => e.type === "compaction").at(-1)?.id ?? "initial", unambiguous, key: host };
+    return { ...key, branch, ids, segment: latestCompaction ?? "initial", unambiguous, key: key.host };
   } catch { return; }
 }
 function segment(i: Identity): string { return i.segment; }
-function same(a: Identity | undefined, b: Identity | undefined): boolean { return !!a && !!b && a.file === b.file && a.host === b.host; }
+function same(a: SessionKey | undefined, b: SessionKey | undefined): boolean { return !!a && !!b && a.file === b.file && a.host === b.host; }
 function valid(p: Provenance | undefined, i: Identity): p is Provenance {
   return !!p && p.file === i.file && p.host === i.host && p.segment === segment(i) &&
     i.ids.has(p.boundary);
 }
-
 /** Instance-scoped lifecycle owner. Public context hooks only FILTER; never append.
  * Empty custom messages are durable retirement markers, not recovery bodies.
  * Legacy resume XML and v1 (path-key) bodies cannot prove native-ID provenance.
  */
 export class PiRecovery {
   private epoch = 0;
-  private current?: Identity;
+  private current?: SessionKey;
   private prepared?: { identity: Identity; events: RecoveryEvent[]; blackhole: boolean; anchor: string };
   private scheduled?: Provenance;
   constructor(private readonly deps: Dependencies) {}
   reset(): void { this.epoch++; this.current = undefined; this.prepared = undefined; this.scheduled = undefined; }
   async activate(reason: string, ctx: RecoveryContext): Promise<void> {
+    // Pi restores the native transcript when a session is resumed, so rebuilding
+    // the same history from SessionDB only duplicates context. The initial
+    // --continue/--resume path is reported as "startup"; a conversational branch
+    // distinguishes it from a genuinely new session (which has only setup entries).
+    const nativeKey = reason === "resume" || reason === "startup" ? sessionKey(ctx) : undefined;
+    const nativeResume = reason === "resume" ||
+      (reason === "startup" && !!nativeKey && hasNativeConversation(ctx));
+    if (nativeResume) {
+      // Invalidate a reload that is still rendering: a resume must never allow
+      // an already-started historical injection to arrive after the boundary.
+      this.reset();
+      this.current = nativeKey;
+      return;
+    }
     const i = identity(ctx);
     const anchor = i?.branch.filter(e => !owned(e)).at(-1)?.id;
     // Preserve the first render/send reservation through duplicate host callbacks,
     // including the window before Pi flushes a queued custom message to its branch.
-    if (i?.unambiguous && same(this.current, i) && ["startup", "resume", "reload"].includes(reason) &&
+    if (i?.unambiguous && same(this.current, i) && ["startup", "reload"].includes(reason) &&
         valid(this.scheduled, i) && this.scheduled.reason === "resume" && this.scheduled.boundary === anchor) return;
     this.reset();
     this.current = i;
-    if (!i || !i.unambiguous || !["startup", "resume", "reload"].includes(reason)) return;
+    if (!i || !i.unambiguous || !["startup", "reload"].includes(reason)) return;
     if (!anchor || !i.branch.some(e => e.type === "message")) return;
     try { await this.deliver(i, ctx, "resume", anchor, this.deps.events(i.key), false); }
     catch { this.deps.warn("Own-session recovery events unavailable; no history substituted."); }

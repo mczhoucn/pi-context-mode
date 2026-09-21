@@ -89,23 +89,31 @@ describe("Pi lifecycle persistent ownership", () => {
   it("duplicate activation preserves both in-flight and unflushed reservations", async () => {
     const h = harness(); let done!: (value: string) => void;
     h.deps.render.mockImplementation(() => new Promise(resolve => { done = resolve; }));
-    const pending = h.controller.activate("resume", h.ctx);
+    const pending = h.controller.activate("reload", h.ctx);
     await h.controller.activate("reload", h.ctx);
     expect(h.deps.render).toHaveBeenCalledOnce();
     done("first render"); await pending;
     expect(h.deps.send).toHaveBeenCalledOnce();
-    await h.controller.activate("resume", h.ctx);
+    await h.controller.activate("reload", h.ctx);
     expect(h.deps.send).toHaveBeenCalledOnce();
     h.flush();
     expect(h.controller.filter(h.messages(), h.ctx)).toHaveLength(1);
+  });
+  it("resume cancels an in-flight reload recovery", async () => {
+    const h = harness(); let done!: (value: string) => void;
+    h.deps.render.mockImplementation(() => new Promise(resolve => { done = resolve; }));
+    const pending = h.controller.activate("reload", h.ctx);
+    await h.controller.activate("resume", h.ctx);
+    done("stale reload"); await pending;
+    expect(h.deps.send).not.toHaveBeenCalled();
   });
   it("new host ID on the same file invalidates an in-flight render and reads only the new key", async () => {
     const h = harness(); let done!: (value: string) => void;
     h.ctx.sessionManager.getSessionFile = () => "/sessions/reused.jsonl";
     h.deps.render.mockImplementationOnce(() => new Promise(resolve => { done = resolve; }));
-    const pending = h.controller.activate("resume", h.ctx);
+    const pending = h.controller.activate("reload", h.ctx);
     h.switchSession();
-    await h.controller.activate("startup", h.ctx);
+    await h.controller.activate("reload", h.ctx);
     done("stale A"); await pending;
     expect(h.deps.events.mock.calls).toEqual([["A"], ["B"]]);
     expect(h.deps.send).toHaveBeenCalledOnce();
@@ -115,9 +123,9 @@ describe("Pi lifecycle persistent ownership", () => {
   it("changed boundary invalidates an in-flight reservation", async () => {
     const h = harness(); let done!: (value: string) => void;
     h.deps.render.mockImplementationOnce(() => new Promise(resolve => { done = resolve; }));
-    const pending = h.controller.activate("resume", h.ctx);
+    const pending = h.controller.activate("reload", h.ctx);
     h.branch.push({ id: "u2", type: "message" });
-    await h.controller.activate("resume", h.ctx);
+    await h.controller.activate("reload", h.ctx);
     done("stale"); await pending;
     expect(h.deps.send).toHaveBeenCalledOnce();
     expect(h.queued[0].details.boundary).toBe("u2");
@@ -134,7 +142,7 @@ describe("Pi lifecycle persistent ownership", () => {
     expect(h.controller.filter(h.messages(), h.ctx)).toEqual([]);
   });
   it("provenance filtering visits branch properties only linearly per call", async () => {
-    const h = harness(); await h.controller.activate("resume", h.ctx); h.flush();
+    const h = harness(); await h.controller.activate("reload", h.ctx); h.flush();
     const template = h.branch.at(-1);
     let reads = 0;
     const n = 400;
@@ -151,7 +159,7 @@ describe("Pi lifecycle persistent ownership", () => {
     }
   });
   it("version-1 path-key bodies are rejected without rewriting transcript entries", async () => {
-    const h = harness(); await h.controller.activate("resume", h.ctx); h.flush();
+    const h = harness(); await h.controller.activate("reload", h.ctx); h.flush();
     const old = h.branch.at(-1);
     old.details = { ...old.details, version: 1 };
     old.content = "UNBOUND VERSION ONE";
@@ -172,15 +180,32 @@ describe("Pi lifecycle persistent ownership", () => {
     expect(h.deps.events).not.toHaveBeenCalled();
     expect(h.deps.send).not.toHaveBeenCalled();
   });
-  it("new sessions never read another history; own resume reads only native host key", async () => {
+  it("new and resumed sessions never read or inject historical recovery", async () => {
     const h = harness();
     await h.controller.activate("new", h.ctx);
+    await h.controller.activate("resume", h.ctx);
     expect(h.deps.events).not.toHaveBeenCalled();
     expect(h.deps.send).not.toHaveBeenCalled();
+    expect(h.controller.filter(h.messages(), h.ctx)).toEqual([]);
+  });
+  it("treats startup of an existing transcript as resume and does not inject", async () => {
+    const h = harness();
+    await h.controller.activate("startup", h.ctx);
+    expect(h.deps.events).not.toHaveBeenCalled();
+    expect(h.deps.send).not.toHaveBeenCalled();
+  });
+  it("avoids full provenance construction on native resume", async () => {
+    const h = harness();
+    let branchReads = 0;
+    let entryReads = 0;
+    h.ctx.sessionManager.getBranch = () => { branchReads++; return [...h.branch]; };
+    h.ctx.sessionManager.getEntries = () => { entryReads++; return [...h.branch]; };
     await h.controller.activate("resume", h.ctx);
-    expect(h.deps.events).toHaveBeenCalledExactlyOnceWith("A");
-    h.flush();
-    expect(h.controller.filter(h.messages(), h.ctx)).toHaveLength(1);
+    expect(branchReads).toBe(0);
+    expect(entryReads).toBe(0);
+    await h.controller.activate("startup", h.ctx);
+    expect(branchReads).toBe(1);
+    expect(entryReads).toBe(0);
   });
   it("preparation does not send; successful inline compact queues once and requires persisted delivery", async () => {
     const h = harness(); await h.controller.activate("new", h.ctx);
@@ -195,7 +220,7 @@ describe("Pi lifecycle persistent ownership", () => {
     expect(h.deps.render).toHaveBeenCalledOnce();
   });
   it("two compactions and empty replacement retire retained old tails across restart", async () => {
-    const h = harness(); await h.controller.activate("resume", h.ctx); h.flush();
+    const h = harness(); await h.controller.activate("reload", h.ctx); h.flush();
     await h.compact("c1"); h.flush();
     expect(h.messages()).toHaveLength(2);
     expect(h.controller.filter(h.messages(), h.ctx)).toHaveLength(1);
@@ -206,17 +231,19 @@ describe("Pi lifecycle persistent ownership", () => {
     await restarted.activate("reload", h.ctx); h.flush();
     expect(restarted.filter(h.messages(), h.ctx)).toEqual([]);
   });
-  it("resume uses baseline even after trimmed compact and reuses baseline on duplicate reload", async () => {
+  it("resume does not rebuild after trimmed compact; reload can explicitly repair it", async () => {
     const h = harness(); h.setEvents([event("goal")]); h.setFlag(true);
     await h.controller.activate("new", h.ctx); await h.compact("c1"); h.flush();
     expect(h.controller.filter(h.messages(), h.ctx)).toEqual([]);
     await h.controller.activate("resume", h.ctx); h.flush();
+    expect(h.deps.send).toHaveBeenCalledOnce();
+    expect(h.controller.filter(h.messages(), h.ctx)).toEqual([]);
+    await h.controller.activate("reload", h.ctx); h.flush();
     expect(h.controller.filter(h.messages(), h.ctx)[0].content).toContain("goal-evidence");
-    await h.controller.activate("reload", h.ctx);
     expect(h.deps.send).toHaveBeenCalledTimes(2);
   });
   it("failure leaves prior recovery active; unrelated messages and tool ordering survive", async () => {
-    const h = harness(); await h.controller.activate("resume", h.ctx); h.flush();
+    const h = harness(); await h.controller.activate("reload", h.ctx); h.flush();
     h.controller.prepare(h.ctx); h.controller.failed();
     const unrelated = [{ role: "assistant", content: "tool call" }, { role: "toolResult", content: "result" }, { role: "custom", customType: "todo", content: "tasks" }, { role: "user", content: "<session_knowledge>not ours" }];
     expect(h.controller.filter([...unrelated, ...h.messages()], h.ctx)).toEqual([...unrelated, ...h.messages()]);
@@ -235,13 +262,13 @@ describe("Pi lifecycle persistent ownership", () => {
   it("stale asynchronous render never sends to a changed session", async () => {
     const h = harness(); let done!: (v: string) => void;
     h.deps.render.mockImplementation(() => new Promise(resolve => { done = resolve; }));
-    const pending = h.controller.activate("resume", h.ctx);
+    const pending = h.controller.activate("reload", h.ctx);
     h.switchSession(); done("stale"); await pending;
     expect(h.deps.send).not.toHaveBeenCalled();
   });
   it("read/send failures are nonfatal and an undelivered boundary can retry", async () => {
     const h = harness(); h.deps.events.mockImplementationOnce(() => { throw new Error("db unavailable"); });
-    await h.controller.activate("resume", h.ctx);
+    await h.controller.activate("reload", h.ctx);
     expect(h.deps.send).not.toHaveBeenCalled();
     h.deps.send.mockImplementationOnce(() => { throw new Error("host unavailable"); });
     await h.controller.activate("reload", h.ctx);
@@ -251,7 +278,7 @@ describe("Pi lifecycle persistent ownership", () => {
     expect(h.deps.warn).toHaveBeenCalledTimes(2);
   });
   it("fork/tree reset and missing preparation never restore foreign events", async () => {
-    const h = harness(); await h.controller.activate("resume", h.ctx); h.flush();
+    const h = harness(); await h.controller.activate("reload", h.ctx); h.flush();
     const old = h.messages(); h.controller.reset();
     expect(h.controller.filter(old, h.ctx)).toEqual([]);
     await h.controller.activate("fork", h.ctx);
@@ -261,7 +288,7 @@ describe("Pi lifecycle persistent ownership", () => {
   });
   it("renderer failure never substitutes legacy history or prevents later retry", async () => {
     const h = harness(); h.deps.render.mockRejectedValueOnce(new Error("missing helper"));
-    await h.controller.activate("resume", h.ctx);
+    await h.controller.activate("reload", h.ctx);
     expect(h.deps.send).not.toHaveBeenCalled(); expect(h.deps.warn).toHaveBeenCalledOnce();
     await h.controller.activate("reload", h.ctx); expect(h.deps.send).toHaveBeenCalledOnce();
   });

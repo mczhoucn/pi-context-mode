@@ -45,3 +45,19 @@ tools/pricing/litellm-catalog.json
 /.cocoindex_code/
 /.kilo/
 .downstream/
+
+# Local scratch and editor backups
+*.tmp
+*.bk
+
+# Trellis install backups and machine-local identity/runtime
+.trellis/.backup-*/
+.trellis/.developer
+.trellis/.current-task
+.trellis/.ralph-state.json
+.trellis/.runtime/
+
+# Host runtime dumps that are not project docs
+.omo/hindsight/
+.omo/senpi-task/
+.omo/tasks/

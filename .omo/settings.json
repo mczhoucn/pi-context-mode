@@ -1,0 +1,10 @@
+{
+  "enableSkillCommands": true,
+  "extensions": [
+    "./extensions/trellis/index.ts",
+    "-./extensions/context-mode/index.ts"
+  ],
+  "prompts": [
+    "./prompts"
+  ]
+}

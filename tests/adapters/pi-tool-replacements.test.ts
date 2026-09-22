@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadToolReplacementSettings, normalizeToolReplacements, DEFAULT_READ_LIMITS } from "../../src/adapters/pi/tool-replacement-settings.js";
+import { DEFAULT_DISABLED_BUILTIN_FEATURES } from "../../src/adapters/pi/builtin-feature-settings.js";
 import { createBoundedRead, formatReadText, installToolReplacements, type NativeDefinition, type NativeToolSDK, type ReadOperations } from "../../src/adapters/pi/tool-replacements.js";
 import { piToolPresentation } from "../../src/adapters/pi/mcp-bridge.js";
 
@@ -323,7 +324,11 @@ describe("replacement lifecycle wiring", () => {
       // Also covers hosts that reach before_agent_start without session_start.
       await handlers.before_agent_start({ prompt: "test" }, { hasUI: false });
       expect(pi.registerTool).not.toHaveBeenCalled();
-      expect(bootstrap).toHaveBeenCalledWith(pi, expect.any(String), { foreground: false, routeAllShell: false });
+      expect(bootstrap).toHaveBeenCalledWith(pi, expect.any(String), {
+        foreground: false,
+        routeAllShell: false,
+        disabledTools: [...DEFAULT_DISABLED_BUILTIN_FEATURES],
+      });
       expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("bash replacement skipped"), display: true }), { triggerTurn: false });
     } finally { await handlers.session_shutdown?.(); vi.unstubAllEnvs(); }
   });
@@ -346,7 +351,11 @@ describe("replacement lifecycle wiring", () => {
       expect(await handlers.tool_call({ toolName: "bash", input: { command: "curl https://example.com" } })).toMatchObject({ block: true });
       expect(await handlers.tool_call({ toolName: "bash", input: { command: "curl -s -o /tmp/recovery.json https://example.com" } })).toBeUndefined();
       await handlers.before_agent_start({ prompt: "test" }, { hasUI: false });
-      expect(bootstrap).toHaveBeenCalledExactlyOnceWith(pi, expect.any(String), { foreground: false, routeAllShell: bash });
+      expect(bootstrap).toHaveBeenCalledExactlyOnceWith(pi, expect.any(String), {
+        foreground: false,
+        routeAllShell: bash,
+        disabledTools: [...DEFAULT_DISABLED_BUILTIN_FEATURES],
+      });
       await handlers.before_agent_start({ prompt: "again" }, {});
       expect(pi.registerTool).toHaveBeenCalledTimes(Number(bash) + Number(read));
     } finally { await handlers.session_shutdown?.(); vi.unstubAllEnvs(); }

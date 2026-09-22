@@ -52,6 +52,9 @@ interface Message { role?: string; customType?: string; details?: unknown; conte
 interface Dependencies {
   events(key: string): RecoveryEvent[];
   blackhole(): boolean;
+  /** Optional so existing unit harnesses keep the historical behavior.
+   *  The Pi extension always supplies it from `disabledBuiltinFeatures`. */
+  compactRecoveryDisabled?(): boolean;
   render(events: RecoveryEvent[], reason: RecoveryReason, blackhole: boolean): Promise<string>;
   send(message: { customType: string; content: string; display: false; details: Provenance }, options: { triggerTurn: false }): void;
   warn(message: string): void;
@@ -199,14 +202,23 @@ export class PiRecovery {
   }
   filter<T extends Message>(messages: T[], ctx: RecoveryContext): T[] {
     const i = identity(ctx);
+    // A body injected before this feature was disabled must leave model context
+    // too. Otherwise the switch would stop new writes while the old body kept
+    // spending context tokens on every request — the feature would still be
+    // active through its own output. Only compact-reason bodies retire here;
+    // explicit-reload (resume) recovery is a separate lifecycle behavior.
+    const retired = (m: Message): boolean =>
+      owned(m) && metadata(m.details)?.reason === "compact" &&
+      (this.deps.compactRecoveryDisabled?.() ?? false);
     if (!same(this.current, i)) { this.reset(); return messages.filter(m => !(m.role === "custom" && owned(m))); }
-    if (!i) return messages;
+    if (!i) return messages.filter(m => !(m.role === "custom" && retired(m)));
     const entries = i.branch.filter(e => owned(e) && valid(metadata(e.details), i));
     const latest = metadata(entries.at(-1)?.details);
     // Only branch-persisted delivery is eligible. A queued send isn't proof.
     let kept = false;
     return messages.filter(m => {
       if (m.role !== "custom" || !owned(m)) return true;
+      if (retired(m)) return false;
       const p = metadata(m.details);
       if (kept || !latest || !valid(p, i) || p.boundary !== latest.boundary || p.reason !== latest.reason || !m.content) return false;
       kept = true;

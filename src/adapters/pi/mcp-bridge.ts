@@ -996,6 +996,13 @@ export interface BootstrapOptions {
   env?: NodeJS.ProcessEnv;
   /** True only after the Pi native Bash recovery replacement is active. */
   routeAllShell?: boolean;
+  /**
+   * Exact MCP tool names the Pi host must not expose to its agent. The MCP
+   * child still serves them (CLI/other hosts), but they are never registered
+   * through `pi.registerTool()`, so they are absent from the agent's callable
+   * registry and prompt metadata. Defaults to none.
+   */
+  disabledTools?: readonly string[];
   /** DI hook for tests: override the runtime resolver entirely. */
   _resolveJsRuntime?: () => string | null;
   /**
@@ -1103,7 +1110,13 @@ export async function bootstrapMCPTools(
   const tools = await client.listTools();
   const registered: string[] = [];
 
+  // Host policy seam: the MCP catalog stays complete, but only the tools this
+  // host allows reach Pi's agent-facing registry. A tool absent from the live
+  // catalog is unaffected — the filter can only ever remove.
+  const disabled = new Set(options.disabledTools ?? []);
+
   for (const tool of tools) {
+    if (disabled.has(tool.name)) continue;
     pi.registerTool({
       name: tool.name,
       label: tool.name,

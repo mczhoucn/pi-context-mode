@@ -18,10 +18,11 @@ import "./setup-home";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { SessionDB, resolveSessionDbPath } from "../src/session/db.js";
+import { DEFAULT_DISABLED_BUILTIN_FEATURES } from "../src/adapters/pi/builtin-feature-settings.js";
 import { ContentStore } from "../src/store.js";
 import { searchAllSources } from "../src/search/unified.js";
 
@@ -864,6 +865,137 @@ describe("Pi Extension", () => {
   // Slice 6: Stats command (/ctx-stats)
   // ═══════════════════════════════════════════════════════════
 
+  describe("Slice 5b: compactRecovery suppression", () => {
+    /** Write the Pi context-mode settings file for the current temp project. */
+    const writeSettings = (features: unknown) => {
+      const path = join(tempDir, ".pi", "context-mode", "settings.json");
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify({ disabledBuiltinFeatures: features }));
+    };
+    const recoveryCtx = (branch: any[]) => ({ sessionManager: {
+      getSessionFile: () => join(tempDir, "suppressed.jsonl"),
+      getSessionId: () => "suppressed",
+      getBranch: () => [...branch], getEntries: () => [...branch],
+    } });
+
+    it("skips the pre-compaction collection and the delivery, but keeps normal compaction working", async () => {
+      writeSettings(["compactRecovery"]);
+      await registerPiExtension(api);
+      const branch: any[] = [{ id: "u1", type: "message" }];
+      const ctx = recoveryCtx(branch);
+      await api._trigger("session_start", { reason: "new" }, ctx);
+      await api._trigger("tool_result", {
+        toolName: "read", params: { path: "/src/main.ts" }, result: "contents",
+      });
+
+      // The pre-compaction step is where context-mode would read this
+      // session's stored events for the summary we are not going to render.
+      // Spy on the prototype so the extension's own singleton is observed —
+      // a fresh instance would prove nothing.
+      const getEvents = vi.spyOn(SessionDB.prototype, "getEvents");
+      try {
+        await api._trigger("session_before_compact", {}, ctx);
+        expect(getEvents).not.toHaveBeenCalled();
+      } finally {
+        getEvents.mockRestore();
+      }
+
+      branch.push({ type: "compaction", id: "c1", parentId: "u1" });
+      await api._trigger("session_compact", { compactionEntry: { id: "c1" } }, ctx);
+
+      // No recovery message and no retirement marker: with the feature off,
+      // context-mode must not write anything at the compact boundary. A
+      // retirement marker would still be a sendMessage (with empty content),
+      // so counting sends covers both.
+      expect(api.sendMessage).not.toHaveBeenCalled();
+      expect(await api._getCommand("ctx-stats")!.handler!({})).toMatchObject({
+        text: expect.stringContaining("Compactions: 1"),
+      });
+    });
+
+    it("leaves the default (enabled) compact recovery untouched", async () => {
+      await registerPiExtension(api);
+      const branch: any[] = [{ id: "u1", type: "message" }];
+      const ctx = recoveryCtx(branch);
+      await api._trigger("session_start", { reason: "new" }, ctx);
+      await api._trigger("tool_result", {
+        toolName: "read", params: { path: "/src/main.ts" }, result: "contents",
+      });
+      api.sendMessage.mockImplementation((message: any) => {
+        branch.push({ ...message, type: "custom_message", id: "recovery", parentId: "c1" });
+      });
+      const getEvents = vi.spyOn(SessionDB.prototype, "getEvents");
+
+      await api._trigger("session_before_compact", {}, ctx);
+      // Inverse of the suppressed case: with the feature on, the pre-compaction
+      // step DOES read this session's events. This keeps the suppression
+      // assertion non-vacuous — the same spy must fire here.
+      expect(getEvents).toHaveBeenCalled();
+      branch.push({ type: "compaction", id: "c1", parentId: "u1" });
+      await api._trigger("session_compact", { compactionEntry: { id: "c1" } }, ctx);
+
+      expect(api.sendMessage).toHaveBeenCalledOnce();
+      expect(api.sendMessage.mock.calls[0][0].content).toContain("main.ts");
+      getEvents.mockRestore();
+    });
+
+    it("drops a previously injected recovery body from model context", async () => {
+      writeSettings(["compactRecovery"]);
+      await registerPiExtension(api);
+      // A recovery message persisted by an earlier session (before this
+      // setting changed) must not keep spending context tokens. Suppression
+      // stops new injections; the existing context filter retires old bodies
+      // from the MODEL context without rewriting the append-only transcript.
+      const stale = {
+        role: "custom",
+        customType: "context-mode-recovery",
+        content: "STALE RECOVERY BODY",
+        details: { version: 2, file: join(tempDir, "suppressed.jsonl"), host: "suppressed",
+          boundary: "u1", segment: "initial", reason: "compact", profile: "baseline" },
+      };
+      const branch: any[] = [{ id: "u1", type: "message" }, { ...stale, id: "old", type: "custom_message" }];
+      const ctx = recoveryCtx(branch);
+      await api._trigger("session_start", { reason: "new" }, ctx);
+
+      const messages = [{ role: "user", content: "continue" }, stale];
+      const result = await api._trigger("context", { messages }, ctx);
+      expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].role).toBe("user");
+      // The transcript entry itself stays untouched.
+      expect(branch.filter((entry) => entry.type === "custom_message")).toHaveLength(1);
+    });
+
+    it("ignores an invalid feature list and falls back to hiding the five tools only", async () => {
+      writeSettings(["not-a-feature"]);
+      await registerPiExtension(api);
+      const branch: any[] = [{ id: "u1", type: "message" }];
+      const ctx = recoveryCtx(branch);
+      await api._trigger("session_start", { reason: "new" }, ctx);
+      await api._trigger("tool_result", {
+        toolName: "read", params: { path: "/src/main.ts" }, result: "contents",
+      });
+      api.sendMessage.mockImplementation((message: any) => {
+        branch.push({ ...message, type: "custom_message", id: "recovery", parentId: "c1" });
+      });
+
+      await api._trigger("session_before_compact", {}, ctx);
+      branch.push({ type: "compaction", id: "c1", parentId: "u1" });
+      await api._trigger("session_compact", { compactionEntry: { id: "c1" } }, ctx);
+
+      // Invalid configuration must not silently disable recovery. Only the
+      // configuration warning travels through sendMessage in this non-UI ctx.
+      const recoveryCalls = api.sendMessage.mock.calls.filter(
+        ([message]: [any]) => message?.customType === "context-mode-recovery",
+      );
+      expect(recoveryCalls).toHaveLength(1);
+      const warnings = api.sendMessage.mock.calls.filter(
+        ([message]: [any]) => message?.customType === "context-mode-warning",
+      );
+      expect(warnings).toHaveLength(1);
+      expect(String(warnings[0][0].content)).toContain("not-a-feature");
+    });
+  });
+
   describe("Slice 6: Stats command", () => {
     it("registers /ctx-stats command", async () => {
       await registerPiExtension(api);
@@ -1443,10 +1575,14 @@ describe("Pi MCP bridge (#426)", () => {
       };
 
       const { bootstrapMCPTools } = await import("../src/adapters/pi/mcp-bridge.js");
-      bridge = await bootstrapMCPTools(fakePi, mcpEntry, { env: mcpEnv });
+      bridge = await bootstrapMCPTools(fakePi, mcpEntry, {
+        env: mcpEnv,
+        disabledTools: DEFAULT_DISABLED_BUILTIN_FEATURES,
+      });
 
-      // Pin the canonical agent-facing names. Administrative operations are
-      // intentionally absent from the MCP bridge tool catalog.
+      // Pin the canonical agent-facing names. The MCP child serves the complete
+      // catalog; the administrative tools are filtered at THIS registration
+      // boundary because the host policy asked for them to be hidden.
       expect(bridge.tools).toEqual(
         expect.arrayContaining([
           "ctx_execute",
@@ -1466,6 +1602,12 @@ describe("Pi MCP bridge (#426)", () => {
           "ctx_insight",
         ]),
       );
+      // The filtered tools must be absent from Pi's registry too, not merely
+      // from the returned summary — that registry is what the model sees.
+      const registeredNames = registered.map((reg) => reg.name);
+      for (const hidden of ["ctx_doctor", "ctx_stats", "ctx_upgrade", "ctx_purge", "ctx_insight"]) {
+        expect(registeredNames).not.toContain(hidden);
+      }
 
       // Each registration must satisfy the Pi contract.
       for (const reg of registered) {
@@ -1553,6 +1695,37 @@ describe("Pi MCP bridge (#426)", () => {
       // Pi-native snippet list and rules are shared with the disabled state.
       const read = registered.find(t => t.name === "ctx_execute_file");
       expect(read.description).toBe(serverTools.find(t => t.name === "ctx_execute_file")?.description);
+    }, 30_000);
+
+    it("filters only the requested MCP tools from Pi's registry", async () => {
+      const registered: any[] = [];
+      const { bootstrapMCPTools } = await import("../src/adapters/pi/mcp-bridge.js");
+
+      // Explicit empty list: the full catalog reaches Pi, which is how a user
+      // re-enables the administrative tools they had disabled by default.
+      bridge = await bootstrapMCPTools({ registerTool: tool => { registered.push(tool); } }, mcpEntry, {
+        env: mcpEnv,
+        disabledTools: [],
+      });
+      expect(bridge.tools).toEqual(expect.arrayContaining([
+        "ctx_stats", "ctx_doctor", "ctx_upgrade", "ctx_purge", "ctx_insight",
+      ]));
+      expect(registered.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+        "ctx_stats", "ctx_doctor", "ctx_upgrade", "ctx_purge", "ctx_insight",
+      ]));
+      bridge.shutdown();
+
+      // A single-tool filter must not disturb the rest of the catalog.
+      registered.length = 0;
+      bridge = await bootstrapMCPTools({ registerTool: tool => { registered.push(tool); } }, mcpEntry, {
+        env: mcpEnv,
+        disabledTools: ["ctx_search"],
+      });
+      expect(bridge.tools).not.toContain("ctx_search");
+      expect(registered.map((tool) => tool.name)).not.toContain("ctx_search");
+      for (const name of ["ctx_execute", "ctx_batch_execute", "ctx_index", "ctx_stats", "ctx_insight"]) {
+        expect(bridge.tools).toContain(name);
+      }
     }, 30_000);
 
     it("execute() round-trips through tools/call to the MCP server", async () => {

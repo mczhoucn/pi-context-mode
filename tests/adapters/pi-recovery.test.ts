@@ -64,6 +64,7 @@ function harness() {
   let extra: any[] = [];
   let events = [event("decision")];
   let blackhole = false;
+  let compactOff = false;
   const ctx = { sessionManager: {
     getSessionFile: () => `/sessions/${name}.jsonl`, getSessionId: () => name,
     getBranch: () => [...branch], getEntries: () => [...branch, ...extra],
@@ -71,6 +72,7 @@ function harness() {
   const queued: any[] = [];
   const deps = {
     events: vi.fn(() => events), blackhole: () => blackhole,
+    compactRecoveryDisabled: () => compactOff,
     render: vi.fn(async (e: RecoveryEvent[], r: "resume" | "compact", f: boolean) => projectRecoveryEvents(e, r, f).map(e => e.data).join("\n")),
     send: vi.fn((message: any, options: any) => { expect(options).toEqual({ triggerTurn: false }); queued.push(message); }), warn: vi.fn(),
   };
@@ -80,6 +82,7 @@ function harness() {
   const compact = async (id: string, prepare = true) => { if (prepare) controller.prepare(ctx); branch.push({ id, type: "compaction", parentId: branch.at(-1)?.id }); await controller.compact(id, ctx); };
   return { ctx, deps, controller, flush, messages, compact, queued, branch,
     setEvents: (e: RecoveryEvent[]) => { events = e; }, setFlag: (v: boolean) => { blackhole = v; },
+    setCompactRecoveryDisabled: (v: boolean) => { compactOff = v; },
     switchSession: () => { name = "B"; branch = [{ id: "other", type: "message" }]; },
     diverge: () => { extra = [{ id: "sibling", type: "message" }]; },
   };
@@ -170,6 +173,50 @@ describe("Pi lifecycle persistent ownership", () => {
     expect(h.messages()[0].content).toBe("UNBOUND VERSION ONE");
     expect(restarted.filter(h.messages(), h.ctx)).toHaveLength(1);
     expect(restarted.filter(h.messages(), h.ctx)[0].details.version).toBe(2);
+  });
+  it("retires a compact-reason body once the feature is disabled, without touching resume bodies", async () => {
+    const h = harness();
+    // Establish session identity via the native-resume path (no injection),
+    // then run a normal compact while the feature is enabled.
+    await h.controller.activate("resume", h.ctx);
+    expect(h.deps.send).not.toHaveBeenCalled();
+    await h.compact("c1"); h.flush();
+    expect(h.controller.filter(h.messages(), h.ctx)).toHaveLength(1);
+
+    // Disabling the feature must remove the already-injected compact body from
+    // model context; the transcript entry itself stays append-only.
+    h.setCompactRecoveryDisabled(true);
+    expect(h.controller.filter(h.messages(), h.ctx)).toEqual([]);
+    expect(h.branch.filter(e => e.type === "custom_message")).toHaveLength(1);
+
+    // Re-enabling restores it: retirement is a projection decision, not a
+    // destructive edit of stored history.
+    h.setCompactRecoveryDisabled(false);
+    expect(h.controller.filter(h.messages(), h.ctx)).toHaveLength(1);
+  });
+  it("keeps resume-reason recovery in model context while compact recovery is disabled", async () => {
+    const h = harness();
+    h.setCompactRecoveryDisabled(true);
+    // Explicit reload is the documented repair boundary and is not governed by
+    // this setting, which only covers the post-compaction summary.
+    await h.controller.activate("reload", h.ctx); h.flush();
+    expect(h.deps.send).toHaveBeenCalledOnce();
+    expect(h.controller.filter(h.messages(), h.ctx)).toHaveLength(1);
+  });
+  it("shows no recovery body when the newest generation is a retired compact body", async () => {
+    const h = harness();
+    await h.controller.activate("reload", h.ctx); h.flush();
+    await h.compact("c1"); h.flush();
+    // Two generations exist: an older resume body and a newer compact body.
+    expect(h.deps.send).toHaveBeenCalledTimes(2);
+    expect(h.controller.filter(h.messages(), h.ctx)).toHaveLength(1);
+
+    // Disabling the feature retires the newest generation. The older resume
+    // body must NOT resurface: supersession is a separate invariant from
+    // suppression, and reviving a stale generation would defeat the retirement
+    // mechanism that exists to keep only the current recovery in context.
+    h.setCompactRecoveryDisabled(true);
+    expect(h.controller.filter(h.messages(), h.ctx)).toEqual([]);
   });
   it("in-memory sessions never qualify for persistent recovery", async () => {
     const h = harness();

@@ -5245,14 +5245,18 @@ test("OpenCode/Kilo legacy MCP child emits stderr diagnostic when ctx_* suppress
 // is active, so the wire response becomes `{tools: []}` (spec-compliant,
 // matches what operators expect) paired with the existing stderr diagnostic.
 // This eliminates the misleading -32601 that started #637.
-test("tools/list omits human-only administrative handlers", async () => {
+// The MCP catalog is host-agnostic and complete. Suppressing administrative
+// tools for an agent is a per-host policy: the Pi adapter applies
+// `disabledBuiltinFeatures` at its own registration boundary. This test pins
+// the shared catalog so a future "hide it here" shortcut fails loudly.
+test("tools/list advertises the complete ctx_* catalog", async () => {
   const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
   const { z } = await import("zod");
   const { installStrictClientSchemaCompat } = await import("../../src/server.js");
 
-  const mcp = new McpServer({ name: "human-only-filter", version: "0.0.0" });
+  const mcp = new McpServer({ name: "full-catalog", version: "0.0.0" });
   mcp.registerTool("ctx_execute", {
     description: "agent tool",
     inputSchema: z.object({}),
@@ -5267,10 +5271,10 @@ test("tools/list omits human-only administrative handlers", async () => {
   await Promise.all([
     mcp.server.connect(serverTransport),
     (async () => {
-      const client = new Client({ name: "human-only-filter-probe", version: "0.0.0" }, { capabilities: {} });
+      const client = new Client({ name: "full-catalog-probe", version: "0.0.0" }, { capabilities: {} });
       await client.connect(clientTransport);
       const listed = await client.listTools();
-      expect(listed.tools.map((tool) => tool.name)).toEqual(["ctx_execute"]);
+      expect(listed.tools.map((tool) => tool.name).sort()).toEqual(["ctx_execute", "ctx_stats"]);
       await client.close();
     })(),
   ]);
@@ -5407,10 +5411,10 @@ describe("tool description style contract (#683 ADR-0002)", () => {
   // meets the canonical contract enforced below.
   const EXEMPT_FROM_FORBIDDEN_TOKENS = new Set<string>([]);
 
-  test("source retains the six public and five human-only tool contracts", () => {
-    // The five human-only handlers remain in source for their compatibility
-    // and CLI-adjacent implementation contracts, but are excluded from the
-    // exported/native agent registry and tools/list.
+  test("source retains all eleven ctx_* tool contracts", () => {
+    // Every handler — agent-facing and administrative — is registered in the
+    // shared catalog. Hosts that must not expose one apply their own policy
+    // (Pi: `disabledBuiltinFeatures`).
     expect(tools.length).toBeGreaterThanOrEqual(11);
   });
 
@@ -6022,7 +6026,7 @@ describe("tool description source form contract (#683 PR follow-up)", () => {
     "ctx_insight",
   ]);
 
-  test("source-form contract covers public and human-only handlers", () => {
+  test("source-form contract covers every registered handler", () => {
     expect(blocks.length).toBeGreaterThanOrEqual(11);
   });
 
@@ -6772,6 +6776,11 @@ describe("ctx_* MCP tool annotations (#846)", () => {
     ctx_search:          { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
     ctx_fetch_and_index: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  },
     ctx_batch_execute:   { readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: true  },
+    ctx_stats:           { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
+    ctx_doctor:          { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
+    ctx_upgrade:         { readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false },
+    ctx_purge:           { readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false },
+    ctx_insight:         { readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: true  },
   };
   const tools = REGISTERED_CTX_TOOLS as Array<{ name: string; config: { annotations?: Hints } }>;
   const find = (name: string) => tools.find((t) => t.name === name);
@@ -6905,9 +6914,12 @@ describe("ctx_* advertised schema matches the handler contract", () => {
     for (const tool of REGISTERED_CTX_TOOLS) {
       const schema = (tool.config as { inputSchema?: AnySchema }).inputSchema;
       if (!schema) continue;
-      // A ZodEffects/union has no `.shape`, so the SDK would advertise
-      // properties:{} and strict clients would reject every call.
-      expect(Object.keys(schema.shape ?? {}).length, `${tool.name} has an empty/undetectable shape`).toBeGreaterThan(0);
+      // A ZodEffects/union has no `.shape` at all, so the SDK would advertise
+      // properties:{} and strict clients would reject every call. An empty
+      // `.shape` is different and legitimate: parameterless tools such as
+      // ctx_stats / ctx_doctor / ctx_upgrade / ctx_insight take no arguments
+      // and must stay detectable as ZodObjects.
+      expect(schema.shape, `${tool.name} has an undetectable shape`).toBeDefined();
     }
   });
 });

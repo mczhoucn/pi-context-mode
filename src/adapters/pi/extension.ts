@@ -27,6 +27,11 @@ import { loadExtensionAdapterSettings } from "./extension-adapter-settings.js";
 import type { SessionEvent } from "../../types.js";
 import { bootstrapMCPTools, makeBridgeDiag, isForegroundSession, type BridgeHandle } from "./mcp-bridge.js";
 import { loadToolReplacementSettings } from "./tool-replacement-settings.js";
+import {
+  defaultBuiltinFeatureSettings,
+  loadBuiltinFeatureSettings,
+  type BuiltinFeatureSettings,
+} from "./builtin-feature-settings.js";
 import { installToolReplacements, type NativeToolSDK } from "./tool-replacements.js";
 import { filterProviderPayload } from "./system-prompt-guideline.js";
 import { PiAdapter } from "./index.js";
@@ -310,9 +315,10 @@ function startPiMCPBridge(
   shouldKeepHandle: () => boolean,
   foreground: boolean,
   routeAllShell: boolean,
+  disabledTools: readonly string[],
 ): Promise<void> {
   if (existsSync(serverBundle)) {
-    _mcpBridgeReady = bootstrapMCPTools(pi, serverBundle, { foreground, routeAllShell }).then(
+    _mcpBridgeReady = bootstrapMCPTools(pi, serverBundle, { foreground, routeAllShell, disabledTools }).then(
       (handle) => {
         if (shouldKeepHandle()) {
           _mcpBridge = handle;
@@ -405,6 +411,8 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   let mcpBridgeGeneration = 0;
   let replacementsInitialized = false;
   let effectiveReplacements = { bash: false, read: false };
+  let builtinFeaturesInitialized = false;
+  let builtinFeatures: BuiltinFeatureSettings = defaultBuiltinFeatureSettings();
   const ensureMCPBridge = (foreground: boolean): Promise<void> => {
     if (mcpBridgeStarted) return _mcpBridgeReady;
     mcpBridgeStarted = true;
@@ -415,6 +423,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
       () => mcpBridgeStarted && mcpBridgeGeneration === generation,
       foreground,
       effectiveReplacements.bash,
+      builtinFeatures.disabledTools,
     );
   };
   // Issue #545 — Pi workspace resolver. PI_CONFIG_DIR is Pi's CONFIG dir
@@ -453,6 +462,14 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
     const settings = loadToolReplacementSettings(projectDir, warn);
     effectiveReplacements = installToolReplacements(pi, projectDir, settings, nativeSDK, warn);
   };
+  // Host policy is read once per extension instance: tool visibility is fixed
+  // when the bridge registers tools, so a mid-session file edit cannot be
+  // honored without a reload (documented apply/rollback behavior).
+  const ensureBuiltinFeatures = (ctx: any): void => {
+    if (builtinFeaturesInitialized) return;
+    builtinFeaturesInitialized = true;
+    builtinFeatures = loadBuiltinFeatureSettings(projectDir, (message) => notifyWarning(ctx, message));
+  };
 
   let recoveryContext: any;
   const recoveryWarnings = new Set<string>();
@@ -464,6 +481,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   const recovery = new PiRecovery({
     events: key => db.getEvents(key),
     blackhole: () => loadExtensionAdapterSettings(projectDir, recoveryWarning),
+    compactRecoveryDisabled: () => builtinFeatures.compactRecoveryDisabled,
     render: (events, reason, blackhole) => renderRecovery(pluginRoot, events, reason, blackhole),
     send: (message, options) => pi.sendMessage(message, options),
     warn: recoveryWarning,
@@ -474,6 +492,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   pi.on("session_start", async (event: any, ctx: any) => {
     recoveryContext = ctx;
     recoveryWarnings.clear();
+    ensureBuiltinFeatures(ctx);
     ensureReplacements(ctx);
     try {
       _sessionId = deriveSessionId(ctx ?? {});
@@ -642,6 +661,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
       // buffered credential event). Do NOT add a latch here — it would guard an
       // unreachable state. (Verified against oh-my-pi: main.ts init→prompt order,
       // interactive-mode.ts uiContext wiring, executor.ts subagent hasUI:false.)
+      ensureBuiltinFeatures(ctx);
       ensureReplacements(ctx);
       await ensureMCPBridge(isForegroundSession(ctx));
 
@@ -767,6 +787,13 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   });
 
   pi.on("session_before_compact", (_event: any, ctx: any) => {
+    // Load settings here too: this hook is the gate, so it must not depend on
+    // some earlier hook having run first. Idempotent after the first load.
+    ensureBuiltinFeatures(ctx);
+    // Suppression also skips the pre-compaction data collection itself, not
+    // just the delivery: `prepare` reads this session's stored events into
+    // memory only for the recovery body we are about to not render.
+    if (builtinFeatures.compactRecoveryDisabled) return;
     recoveryContext = ctx;
     recovery.prepare(ctx ?? {});
   });
@@ -774,7 +801,9 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   pi.on("session_compact", async (event: any, ctx: any) => {
     try {
       recoveryContext = ctx;
-      await recovery.compact(event?.compactionEntry?.id, ctx ?? {});
+      if (!builtinFeatures.compactRecoveryDisabled) {
+        await recovery.compact(event?.compactionEntry?.id, ctx ?? {});
+      }
       if (_sessionId) db.incrementCompactCount(_sessionId);
     } catch { /* best effort */ }
   });

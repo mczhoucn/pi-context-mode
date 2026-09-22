@@ -33,6 +33,7 @@ import type { SessionEvent } from "../../types.js";
 import { AdapterPlatformType, OpenCodeAdapter } from "./index.js";
 import { PLATFORM_ENV_VARS } from "../detect.js";
 import { zod3ShapeToV4 } from "./zod3tov4.js";
+import { ADMINISTRATIVE_CTX_TOOL_NAMES } from "../../ctx-tool-catalog.js";
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -401,7 +402,14 @@ async function createContextModePlugin(ctx: PluginContext) {
     }
     const tools: Record<string, NativeToolDefinition> = {};
 
+    // Host policy, applied at this adapter's own registry boundary: the shared
+    // MCP catalog is complete, but the OpenCode/Kilo native tool map keeps
+    // advertising only the sandbox/search tools. Diagnostic and maintenance
+    // operations stay available through the terminal CLI.
+    const administrative = new Set<string>(ADMINISTRATIVE_CTX_TOOL_NAMES);
+
     for (const registered of mod.REGISTERED_CTX_TOOLS) {
+      if (administrative.has(registered.name)) continue;
       const config = registered.config as Record<string, unknown>;
       // Zod schema object that the MCP framework normally calls
       // safeParseAsync() on before invoking the handler. The native

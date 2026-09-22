@@ -154,18 +154,6 @@ export interface RegisteredCtxTool {
 
 export const REGISTERED_CTX_TOOLS: RegisteredCtxTool[] = [];
 
-// Administrative operations are useful to a human at the terminal, but their
-// schemas do not belong in an agent's MCP tool catalog. Keep their handlers
-// callable for known compatibility callers while excluding them from the
-// native-plugin registry and the MCP tools/list response.
-export const HUMAN_ONLY_CTX_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "ctx_stats",
-  "ctx_doctor",
-  "ctx_upgrade",
-  "ctx_purge",
-  "ctx_insight",
-]);
-
 export function shouldSuppressMcpToolsForNativePluginHost(
   opts: { embedded?: string; platform?: PlatformId; settings?: Record<string, unknown> | null } = {},
 ): boolean {
@@ -299,9 +287,7 @@ const originalRegisterTool = server.registerTool.bind(server);
     return undefined;
   }
   const wrappedHandler = wrapToolHandler(name, handler);
-  if (!HUMAN_ONLY_CTX_TOOL_NAMES.has(name)) {
-    REGISTERED_CTX_TOOLS.push({ name, config, handler: wrappedHandler });
-  }
+  REGISTERED_CTX_TOOLS.push({ name, config, handler: wrappedHandler });
   args[2] = wrappedHandler;
   return (originalRegisterTool as unknown as (...callArgs: unknown[]) => unknown)(...args);
 };
@@ -394,8 +380,10 @@ export function sanitizeSchemaForStrictClients(node: unknown): unknown {
   return out;
 }
 
-// Wrap the SDK-installed tools/list handler so administrative handlers stay
-// hidden and the remaining generated schemas pass through the sanitizer above.
+// Wrap the SDK-installed tools/list handler so its generated schemas pass through
+// the sanitizer above. The catalog itself is host-agnostic: which tools an agent
+// may see and call is a per-host policy (the Pi adapter applies
+// `disabledBuiltinFeatures` at its registration boundary).
 // Best-effort by design: if the MCP SDK's internals shift, the original handler
 // is left untouched. Must run AFTER all registerTool() calls so the SDK's
 // default tools/list handler already exists.
@@ -408,14 +396,9 @@ export function installStrictClientSchemaCompat(target: McpServer = server): voi
     if (typeof original !== "function") return;
     target.server.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
       const result = (await original(req as unknown, extra as unknown)) as
-        | { tools?: Array<{ name?: string; inputSchema?: unknown }> }
+        | { tools?: Array<{ inputSchema?: unknown }> }
         | undefined;
       if (result && Array.isArray(result.tools)) {
-        // Keep human-only administrative handlers callable by exact name, but
-        // never advertise their descriptions/schemas to an agent.
-        result.tools = result.tools.filter(
-          (tool) => !HUMAN_ONLY_CTX_TOOL_NAMES.has(tool?.name ?? ""),
-        );
         for (const tool of result.tools) {
           if (!tool || tool.inputSchema == null) continue;
           try {

@@ -134,6 +134,39 @@ Both replacements are **off by default**. To opt in, add this namespace to eithe
 
 **Routing:** Automatic. The extension registers all key lifecycle events (`tool_call`, `tool_result`, `session_start`, `session_before_compact`), providing full session continuity and routing enforcement.
 
+### Disabling built-in features (Pi)
+
+The five administrative operations are **hidden from Pi agents by default**. They remain callable from the terminal CLI and from other hosts; only Pi's own agent-facing tool catalog excludes them. To change what Pi exposes, add this namespace to either context-mode settings file above:
+
+```json
+{
+  "disabledBuiltinFeatures": [
+    "ctx_stats",
+    "ctx_doctor",
+    "ctx_upgrade",
+    "ctx_purge",
+    "ctx_insight"
+  ]
+}
+```
+
+Accepted entries are these five tool names, the other agent-facing tools (`ctx_execute`, `ctx_execute_file`, `ctx_batch_execute`, `ctx_index`, `ctx_search`, `ctx_fetch_and_index`) if you want to narrow the sandbox toolset, and one feature switch:
+
+| Entry | Effect |
+|---|---|
+| A `ctx_*` tool name | That tool is not registered with Pi: the agent cannot see or call it, and its Pi prompt metadata is absent. Its handler still exists for the CLI and other hosts. |
+| `compactRecovery` | Disables context-mode's own post-compaction recovery: the pre-compaction data collection for that summary is skipped, and no recovery message is injected after a successful compaction. |
+
+Behavior notes:
+
+- **Default:** the five administrative tools are disabled; `compactRecovery` is enabled. Writing the list is how you change that, including an explicit empty list — `"disabledBuiltinFeatures": []` restores all five tools to Pi while leaving post-compaction recovery on.
+- The list is a complete statement, not a merge: an explicit project list replaces the global list, and a project file without the field inherits the global value, then the default.
+- Disabling a *tool* never disables the matching Pi slash command (`/ctx-stats`, `/ctx-doctor`), and never changes the MCP server's own tool catalog for other hosts.
+- Disabling `compactRecovery` does **not** stop runtime event capture, Pi's or Blackhole's compaction, SessionDB writes, the native transcript, or lifecycle recovery on an explicit extension reload. It only stops context-mode's compact-boundary summary. A summary injected before the setting changed also stops reaching the model, so the feature is not still active through its own old output; the append-only transcript is never rewritten, so re-enabling the feature restores it.
+- Invalid configuration (non-array value, non-string or unknown entry, malformed/unreadable file) warns once and falls back to the defaults: administrative tools hidden, `compactRecovery` enabled. It never blocks Pi startup.
+- These settings never come from Pi's generic settings, Claude, or Trellis, and they are independent of `toolReplacements` and `extensionAdapters`.
+- **Apply/rollback:** tool visibility is fixed when Pi registers the bridge, so reload extensions or restart Pi after changing this list. Live toggling is not supported.
+
 </details>
 
 <details>

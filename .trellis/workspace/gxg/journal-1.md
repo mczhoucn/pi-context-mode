@@ -41,3 +41,28 @@ Delivered independent default-off Bash routing and bounded native Read, with con
 ### Next Steps
 
 - Existing Bootstrap Guidelines task and unrelated Trellis initialization changes remain untouched.
+
+
+## Session 2: Configurable Pi built-in feature suppression
+<!-- trellis-session: v=2 fp=43693f037931c3ec -->
+
+**Date**: 2026-09-23
+**Task**: Configurable Pi built-in feature suppression
+**Branch**: `downstream`
+
+### Summary
+
+Shipped disabledBuiltinFeatures for Pi: default-hide five administrative tools, optional compactRecovery gate, host-owned catalog filtering, tests, README/spec, Trellis host wiring, and local-tmp gitignore.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e55139b6` | feat(pi): add configurable built-in feature suppression |
+| `806263f6` | chore: ignore local tmp files and host runtime dumps |
+| `8f395c21` | chore: add Trellis workflow files and Pi/OMO host wiring |
+| `b828321f` | chore: merge Trellis journals with union |
+
+### Status
+
+[OK] **Completed**

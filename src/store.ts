@@ -201,23 +201,12 @@ export function cleanupStaleDBs(): number {
 }
 
 /**
- * Check if a PID is still alive (not a zombie holding a WAL lock).
- * Returns true if the process exists, false if it's dead.
- */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Clean up stale per-project content store DBs older than maxAgeDays.
- * Scans the given directory for *.db files and checks mtime.
- * Also detects zombie processes holding WAL locks — if a WAL file exists
- * but the owning PID is dead, the DB files are cleaned up regardless of age.
+ * Delete content-store DB files whose main file is older than maxAgeDays.
+ *
+ * A quiet WAL is not a dead owner. SQLite releases its lock when a process
+ * exits, and an idle live server may not write the WAL for hours. Unlinking
+ * a DB that another process still has open makes that process's next query
+ * throw SQLite "disk I/O error". Age is the only deletion signal here.
  */
 export function cleanupStaleContentDBs(contentDir: string, maxAgeDays: number): number {
   let cleaned = 0;
@@ -228,32 +217,11 @@ export function cleanupStaleContentDBs(contentDir: string, maxAgeDays: number): 
     for (const file of files) {
       try {
         const filePath = join(contentDir, file);
-        const mtime = statSync(filePath).mtimeMs;
-        let shouldClean = mtime < cutoff;
-
-        // Detect zombie processes holding WAL locks:
-        // If a WAL file exists, try to read the WAL header to extract the PID.
-        // WAL files from dead processes can block new connections.
-        if (!shouldClean) {
-          const walPath = filePath + "-wal";
-          if (existsSync(walPath)) {
-            try {
-              const walStat = statSync(walPath);
-              // If WAL file is non-empty and DB hasn't been modified in >1 hour,
-              // the owning process may be dead — check via mtime staleness
-              if (walStat.size > 0 && (Date.now() - walStat.mtimeMs) > 3600_000) {
-                shouldClean = true;
-              }
-            } catch { /* ignore WAL check errors */ }
-          }
+        if (statSync(filePath).mtimeMs >= cutoff) continue;
+        for (const suffix of ["", "-wal", "-shm"]) {
+          try { unlinkSync(filePath + suffix); } catch { /* ignore */ }
         }
-
-        if (shouldClean) {
-          for (const suffix of ["", "-wal", "-shm"]) {
-            try { unlinkSync(filePath + suffix); } catch { /* ignore */ }
-          }
-          cleaned++;
-        }
+        cleaned++;
       } catch { /* ignore per-file errors */ }
     }
   } catch { /* ignore readdir errors */ }

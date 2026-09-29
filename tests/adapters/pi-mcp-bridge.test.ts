@@ -13,12 +13,10 @@ import "../setup-home";
  *
  *   1. Resolve a real JS runtime (bun/node), reject pi-named binaries
  *      even when they are returned by `detectRuntimes().javascript`.
- *   2. Pass `CONTEXT_MODE_BRIDGE_DEPTH=1` into the child env so any
- *      transitive bridge load can detect the recursion.
- *   3. Refuse to bootstrap if `CONTEXT_MODE_BRIDGE_DEPTH > 0` is
- *      already set in the current process env (catches recursion that
- *      bypasses the binary-name check, e.g. `node` shim that re-execs
- *      Pi).
+ *   2. Pass `CONTEXT_MODE_BRIDGE_DEPTH=1` and an explicit child marker
+ *      into the child env so any transitive bridge load can detect recursion.
+ *   3. Refuse to bootstrap only when the child marker is present; a Pi
+ *      parent may inherit the depth counter from its launching shell.
  *   4. When neither node nor bun is on PATH AND execPath is pi, log
  *      once and skip the bridge instead of throwing.
  */
@@ -42,6 +40,7 @@ afterEach(() => {
     /* best effort */
   }
   delete process.env.CONTEXT_MODE_BRIDGE_DEPTH;
+  delete process.env.CONTEXT_MODE_BRIDGE_CHILD;
 });
 
 // Slice 1 — runtime name guard
@@ -90,12 +89,12 @@ describe("resolveJsRuntimeForBridge — Pi fork-bomb guard (#516)", () => {
 
 // Slice 2 — env depth counter
 describe("MCP bridge spawn — passes CONTEXT_MODE_BRIDGE_DEPTH=1 to child env (#516)", () => {
-  it("child process inherits CONTEXT_MODE_BRIDGE_DEPTH=1", async () => {
-    // Fake server that prints the depth env var and exits.
+  it("child process inherits the depth and explicit bridge-child marker", async () => {
+    // Fake server that prints the bridge env vars and exits.
     const fakePath = join(scratch, "echo-depth.mjs");
     writeFileSync(
       fakePath,
-      `process.stdout.write(JSON.stringify({ depth: process.env.CONTEXT_MODE_BRIDGE_DEPTH }) + "\\n");
+      `process.stdout.write(JSON.stringify({ depth: process.env.CONTEXT_MODE_BRIDGE_DEPTH, child: process.env.CONTEXT_MODE_BRIDGE_CHILD }) + "\\n");
        setInterval(() => {}, 1000);`,
       "utf-8",
     );
@@ -107,6 +106,7 @@ describe("MCP bridge spawn — passes CONTEXT_MODE_BRIDGE_DEPTH=1 to child env (
     // Pluck the live env that was passed into spawn — exposed for tests.
     const live = (client as unknown as { _spawnEnv?: NodeJS.ProcessEnv })._spawnEnv;
     expect(live?.CONTEXT_MODE_BRIDGE_DEPTH).toBe("1");
+    expect(live?.CONTEXT_MODE_BRIDGE_CHILD).toBe("1");
 
     client.shutdown();
   });
@@ -114,8 +114,9 @@ describe("MCP bridge spawn — passes CONTEXT_MODE_BRIDGE_DEPTH=1 to child env (
 
 // Slice 3 — recursion guard via env counter
 describe("bootstrapMCPTools — recursion guard (#516)", () => {
-  it("aborts and logs to pi.logger (NOT the TUI terminal) when CONTEXT_MODE_BRIDGE_DEPTH > 0 already set (#868)", async () => {
+  it("aborts and logs to pi.logger (NOT the TUI terminal) for an explicitly marked bridge child (#868)", async () => {
     process.env.CONTEXT_MODE_BRIDGE_DEPTH = "1";
+    process.env.CONTEXT_MODE_BRIDGE_CHILD = "1";
 
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
@@ -136,6 +137,23 @@ describe("bootstrapMCPTools — recursion guard (#516)", () => {
     ).toBe(true);
 
     stderrSpy.mockRestore();
+  });
+
+  it("does not mistake an inherited depth counter in the Pi parent for recursion", async () => {
+    process.env.CONTEXT_MODE_BRIDGE_DEPTH = "1";
+
+    const { bootstrapMCPTools } = await import("../../src/adapters/pi/mcp-bridge.js");
+    const warn = vi.fn();
+    const handle = await bootstrapMCPTools(
+      { registerTool: vi.fn(), logger: { warn, debug: vi.fn() } },
+      "/non/existent/server.mjs",
+      { _resolveJsRuntime: () => null },
+    );
+
+    expect(handle.tools).toEqual([]);
+    const logged = warn.mock.calls.map((c) => String(c[0])).join("\\n");
+    expect(logged).not.toContain("indicates recursion");
+    expect(logged).toContain("no JS runtime");
   });
 });
 

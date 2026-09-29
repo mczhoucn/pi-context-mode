@@ -42,14 +42,16 @@ interface PendingRequest {
 //   1. resolveJsRuntimeForBridge() refuses pi-named binaries even when
 //      detectRuntimes() returns one, falling back to PATH-resolved
 //      node/bun.
-//   2. Spawn passes CONTEXT_MODE_BRIDGE_DEPTH=1 in child env so any
-//      transitive bridge load can detect the recursion via env counter.
-//   3. bootstrapMCPTools() aborts if CONTEXT_MODE_BRIDGE_DEPTH > 0 in
-//      its own env — catches recursion that bypasses the binary-name
-//      check (e.g. a `node` shim that re-execs Pi).
+//   2. Spawn marks the child with CONTEXT_MODE_BRIDGE_CHILD=1 and passes
+//      CONTEXT_MODE_BRIDGE_DEPTH so any transitive bridge load can detect
+//      the recursion.
+//   3. bootstrapMCPTools() aborts only when the explicit child marker is
+//      present — a parent Pi process may legitimately inherit the depth
+//      counter from the shell that launched it.
 
 const PI_BINARY_BASENAME = /^pi(\.exe)?$/i;
 const BRIDGE_DEPTH_ENV = "CONTEXT_MODE_BRIDGE_DEPTH";
+const BRIDGE_CHILD_ENV = "CONTEXT_MODE_BRIDGE_CHILD";
 const isWindows = process.platform === "win32";
 
 function basename(p: string): string {
@@ -430,6 +432,7 @@ export class MCPStdioClient {
     const childEnv: NodeJS.ProcessEnv = {
       ...this.env,
       [BRIDGE_DEPTH_ENV]: String(Number.isFinite(depth) ? depth + 1 : 1),
+      [BRIDGE_CHILD_ENV]: "1",
     };
     // Issue #545 — scrub foreign workspace env vars before spawn.
     //
@@ -1038,12 +1041,12 @@ export async function bootstrapMCPTools(
   // #868: all bridge diagnostics go to Pi's file logger, never the TUI terminal.
   const diag = makeBridgeDiag(pi);
 
-  // Recursion guard (#516): if an ancestor bridge already incremented
-  // the depth counter, refuse to spawn another child — even if the
-  // binary-name check would let us through. Catches `node` shims that
-  // re-exec Pi and other host swaps that bypass basename detection.
+  // Recursion guard (#516): only a process explicitly marked as a bridge
+  // child may use the depth counter as a skip signal. A Pi parent can inherit
+  // CONTEXT_MODE_BRIDGE_DEPTH=1 from the shell that launched it; treating that
+  // inherited value as proof of recursion silently removes every ctx_* tool.
   const depth = Number.parseInt(env[BRIDGE_DEPTH_ENV] ?? "0", 10);
-  if (Number.isFinite(depth) && depth > 0) {
+  if (env[BRIDGE_CHILD_ENV] === "1" && Number.isFinite(depth) && depth > 0) {
     diag(
       `[context-mode] WARNING: skipping MCP bridge — ${BRIDGE_DEPTH_ENV}=${depth} ` +
         `indicates recursion (fork-bomb guard, #516). ctx_* tools will not be callable.`,

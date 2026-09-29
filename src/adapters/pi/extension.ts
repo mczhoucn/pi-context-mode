@@ -27,6 +27,7 @@ import { loadExtensionAdapterSettings } from "./extension-adapter-settings.js";
 import type { SessionEvent } from "../../types.js";
 import { bootstrapMCPTools, makeBridgeDiag, isForegroundSession, type BridgeHandle } from "./mcp-bridge.js";
 import { loadToolReplacementSettings } from "./tool-replacement-settings.js";
+import { loadTidyToolDisplaySettings } from "./tidy-tool-display-settings.js";
 import {
   defaultBuiltinFeatureSettings,
   loadBuiltinFeatureSettings,
@@ -316,9 +317,10 @@ function startPiMCPBridge(
   foreground: boolean,
   routeAllShell: boolean,
   disabledTools: readonly string[],
+  tidyToolDisplay: boolean,
 ): Promise<void> {
   if (existsSync(serverBundle)) {
-    _mcpBridgeReady = bootstrapMCPTools(pi, serverBundle, { foreground, routeAllShell, disabledTools }).then(
+    _mcpBridgeReady = bootstrapMCPTools(pi, serverBundle, { foreground, routeAllShell, disabledTools, tidyToolDisplay }).then(
       (handle) => {
         if (shouldKeepHandle()) {
           _mcpBridge = handle;
@@ -413,6 +415,13 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   let effectiveReplacements = { bash: false, read: false };
   let builtinFeaturesInitialized = false;
   let builtinFeatures: BuiltinFeatureSettings = defaultBuiltinFeatureSettings();
+  let tidyDisplayInitialized = false;
+  let tidyToolDisplay = false;
+  const ensureTidyDisplay = (ctx: any): void => {
+    if (tidyDisplayInitialized) return;
+    tidyDisplayInitialized = true;
+    tidyToolDisplay = loadTidyToolDisplaySettings(projectDir, (message) => notifyWarning(ctx, message)).enabled;
+  };
   const ensureMCPBridge = (foreground: boolean): Promise<void> => {
     if (mcpBridgeStarted) return _mcpBridgeReady;
     mcpBridgeStarted = true;
@@ -424,6 +433,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
       foreground,
       effectiveReplacements.bash,
       builtinFeatures.disabledTools,
+      tidyToolDisplay,
     );
   };
   // Issue #545 — Pi workspace resolver. PI_CONFIG_DIR is Pi's CONFIG dir
@@ -459,8 +469,11 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
     if (replacementsInitialized) return;
     replacementsInitialized = true;
     const warn = (message: string): void => notifyWarning(ctx, message);
+    ensureTidyDisplay(ctx);
     const settings = loadToolReplacementSettings(projectDir, warn);
-    effectiveReplacements = installToolReplacements(pi, projectDir, settings, nativeSDK, warn);
+    effectiveReplacements = installToolReplacements(pi, projectDir, settings, nativeSDK, warn, {
+      tidyToolDisplay,
+    });
   };
   // Host policy is read once per extension instance: tool visibility is fixed
   // when the bridge registers tools, so a mid-session file edit cannot be

@@ -1,6 +1,8 @@
 import { constants } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import type { ReplacementWarning, ToolReplacementSettings } from "./tool-replacement-settings.js";
+import { PiTextComponent } from "./mcp-bridge.js";
+import { createTidyRenderers, omitDisplayReasoning, selectDisplaySchema } from "./tidy-tool-display.js";
 
 // Structural host boundary: no installed/bundled second copy of the Pi SDK.
 export interface NativeResult {
@@ -160,12 +162,29 @@ function supportedSchema(schema: unknown, name: "bash" | "read"): boolean {
 }
 
 /** Call only once runtime APIs are bound, never during extension discovery. */
+function withTidyReplacementDisplay(definition: NativeDefinition): NativeDefinition {
+  const display = selectDisplaySchema(definition.parameters, true);
+  if (!display.injected) return definition;
+  const tidy = createTidyRenderers(definition.name, PiTextComponent);
+  return {
+    ...definition,
+    parameters: display.schema,
+    renderShell: tidy.renderShell,
+    renderCall: tidy.renderCall,
+    renderResult: tidy.renderResult,
+    async execute(id, args, signal, onUpdate, ctx) {
+      return definition.execute.call(definition, id, omitDisplayReasoning(args), signal, onUpdate, ctx);
+    },
+  };
+}
+
 export function installToolReplacements(
   pi: ReplacementAPI,
   cwd: string,
   settings: ToolReplacementSettings,
   sdk: NativeToolSDK | undefined,
   warn: ReplacementWarning,
+  options?: { tidyToolDisplay?: boolean },
 ): EffectiveReplacementPolicy {
   const effective = { bash: false, read: false };
   for (const feature of ["bash", "read"] as const) {
@@ -188,7 +207,8 @@ export function installToolReplacements(
         throw new Error("unsupported native definition");
       }
       registrationAttempted = true;
-      pi.registerTool(definition);
+      const published = options?.tidyToolDisplay === true ? withTidyReplacementDisplay(definition) : definition;
+      pi.registerTool(published);
       // Runtime registration is synchronous on the supported host. Verify that
       // first-registration-wins did not silently leave another definition active.
       const installed = pi.getAllTools().find((tool) => tool.name === feature);

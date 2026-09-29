@@ -134,6 +134,23 @@ Both replacements are **off by default**. To opt in, add this namespace to eithe
 
 **Routing:** Automatic. The extension registers all key lifecycle events (`tool_call`, `tool_result`, `session_start`, `session_before_compact`), providing full session continuity and routing enforcement.
 
+### Optional tidy-style tool display (Pi)
+
+This switch is **off by default**. It only changes how context-mode draws its own Pi calls. It does not import, call, or read `@mobrienv/pi-tidy-tools`, and it does not turn `bash` or `read` replacement on.
+
+```json
+{
+  "tidyToolDisplay": { "enabled": true }
+}
+```
+
+- Put it beside `toolReplacements` in the same two context-mode settings files. An explicit project boolean overrides the global boolean. A non-boolean value, a malformed `tidyToolDisplay` object, or an unreadable settings file disables only this switch and warns. It does not disable Bash or Read replacements. A malformed `toolReplacements` object does not disable this switch. `purposeDisplay` and `extensionAdapters` are not this switch.
+- **Off:** no purpose field is added. `ctx_*` stays the current one-line tool name and result summary. Bash and Read replacements keep their current display and execution.
+- **On:** context-mode adds a required `reasoning` string to the Pi-side schema copy only. The model should write one short sentence in the user's language stating the goal, not a command, path, or secret. The field is removed from a copied argument object before MCP or native execution. Omitting it, leaving it blank, or sending a non-text value still runs the call; the first line then shows the concrete target, or only the tool name when there is no target. If a tool schema already has `reasoning`, context-mode does not overwrite it and does not refuse the call.
+- Folded output is two lines: tool name plus purpose, then the concrete target plus a short result. Expanded output stays the full text. This uses Pi's own colors and its self-drawn tool shell. It does not copy tidy icons, timers, or diffs.
+- `bash` and `read` get those two lines only when context-mode's replacement is actually active. If another extension still owns those names, the replacement is skipped and warned, and the stronger shell routing stays off. That ownership conflict is unchanged by this switch.
+- **Apply/rollback:** reload extensions or restart Pi after changing the switch. Live toggling is not supported.
+
 ### Disabling built-in features (Pi)
 
 The five administrative operations are **hidden from Pi agents by default**. They remain callable from the terminal CLI and from other hosts; only Pi's own agent-facing tool catalog excludes them. To change what Pi exposes, add this namespace to either context-mode settings file above:
@@ -164,7 +181,7 @@ Behavior notes:
 - Disabling a *tool* never disables the matching Pi slash command (`/ctx-stats`, `/ctx-doctor`), and never changes the MCP server's own tool catalog for other hosts.
 - Disabling `compactRecovery` does **not** stop runtime event capture, Pi's or Blackhole's compaction, SessionDB writes, the native transcript, or lifecycle recovery on an explicit extension reload. It only stops context-mode's compact-boundary summary. A summary injected before the setting changed also stops reaching the model, so the feature is not still active through its own old output; the append-only transcript is never rewritten, so re-enabling the feature restores it.
 - Invalid configuration (non-array value, non-string or unknown entry, malformed/unreadable file) warns once and falls back to the defaults: administrative tools hidden, `compactRecovery` enabled. It never blocks Pi startup.
-- These settings never come from Pi's generic settings, Claude, or Trellis, and they are independent of `toolReplacements` and `extensionAdapters`.
+- These settings never come from Pi's generic settings, Claude, or Trellis, and they are independent of `toolReplacements`, `tidyToolDisplay`, and `extensionAdapters`.
 - **Apply/rollback:** tool visibility is fixed when Pi registers the bridge, so reload extensions or restart Pi after changing this list. Live toggling is not supported.
 
 </details>

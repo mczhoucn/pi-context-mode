@@ -327,6 +327,7 @@ describe("replacement lifecycle wiring", () => {
       expect(bootstrap).toHaveBeenCalledWith(pi, expect.any(String), {
         foreground: false,
         routeAllShell: false,
+        tidyToolDisplay: false,
         disabledTools: [...DEFAULT_DISABLED_BUILTIN_FEATURES],
       });
       expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("bash replacement skipped"), display: true }), { triggerTurn: false });
@@ -354,6 +355,7 @@ describe("replacement lifecycle wiring", () => {
       expect(bootstrap).toHaveBeenCalledExactlyOnceWith(pi, expect.any(String), {
         foreground: false,
         routeAllShell: bash,
+        tidyToolDisplay: false,
         disabledTools: [...DEFAULT_DISABLED_BUILTIN_FEATURES],
       });
       await handlers.before_agent_start({ prompt: "again" }, {});

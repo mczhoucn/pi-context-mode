@@ -25,6 +25,7 @@ import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { detectRuntimes } from "../../runtime.js";
 import { CLI_FIRST_GUIDANCE } from "../../tool-guidance.js";
 import { foreignWorkspaceEnv, foreignIdentificationEnv } from "../detect.js";
+import { createTidyRenderers, omitDisplayReasoning, selectDisplaySchema } from "./tidy-tool-display.js";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -320,6 +321,10 @@ interface PiRenderTheme {
 
 interface PiRenderContext {
   lastComponent?: unknown;
+  args?: unknown;
+  isPartial?: boolean;
+  isError?: boolean;
+  expanded?: boolean;
 }
 
 function createContextModeCallRenderer(toolName: string) {
@@ -785,6 +790,8 @@ export interface PiToolRegistration {
     theme: PiRenderTheme,
     context: PiRenderContext,
   ) => unknown;
+  /** Self skips Pi's padded tool card. Local rendering only. */
+  renderShell?: "default" | "self";
   execute: (
     toolCallId: string,
     params: Record<string, unknown>,
@@ -1006,6 +1013,8 @@ export interface BootstrapOptions {
    * registry and prompt metadata. Defaults to none.
    */
   disabledTools?: readonly string[];
+  /** Local two-line display. Does not change tool ownership or shell routing. */
+  tidyToolDisplay?: boolean;
   /** DI hook for tests: override the runtime resolver entirely. */
   _resolveJsRuntime?: () => string | null;
   /**
@@ -1120,6 +1129,9 @@ export async function bootstrapMCPTools(
 
   for (const tool of tools) {
     if (disabled.has(tool.name)) continue;
+    const sourceSchema = tool.inputSchema ?? { type: "object", properties: {} };
+    const display = selectDisplaySchema(sourceSchema, options.tidyToolDisplay === true);
+    const tidy = display.injected ? createTidyRenderers(tool.name, PiTextComponent) : undefined;
     pi.registerTool({
       name: tool.name,
       label: tool.name,
@@ -1127,12 +1139,14 @@ export async function bootstrapMCPTools(
       // MCP tools/list returns JSON Schema; Pi validates against JSON
       // Schema (TypeBox is just JSON Schema with extra Symbol metadata
       // for type inference). Empty-object fallback keeps tools that
-      // declare no parameters callable.
-      parameters: tool.inputSchema ?? { type: "object", properties: {} },
-      renderCall: createContextModeCallRenderer(tool.name),
-      renderResult: createContextModeResultRenderer(tool.name),
+      // declare no parameters callable. The display copy is Pi-side only.
+      parameters: display.schema,
+      ...(tidy ? { renderShell: tidy.renderShell } : {}),
+      renderCall: tidy ? tidy.renderCall : createContextModeCallRenderer(tool.name),
+      renderResult: tidy ? tidy.renderResult : createContextModeResultRenderer(tool.name),
       async execute(_toolCallId, params) {
-        const result = await client.callTool(tool.name, params ?? {});
+        const forwarded = display.injected ? omitDisplayReasoning(params) : (params ?? {});
+        const result = await client.callTool(tool.name, forwarded as Record<string, unknown>);
         const text = (result.content ?? [])
           .filter((c) => c?.type === "text" && typeof c.text === "string")
           .map((c) => c.text as string)

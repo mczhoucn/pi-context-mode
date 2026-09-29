@@ -11,10 +11,12 @@ Implementation owners:
 - `src/adapters/pi/host-entry.ts`: static host-SDK import and injection into `piExtension`.
 - `tool-replacement-settings.ts`: `loadToolReplacementSettings(projectDir, warn, home?)` and the single `normalizeToolReplacements(documents, warn)` decoder.
 - `builtin-feature-settings.ts`: `loadBuiltinFeatureSettings(projectDir, warn, home?)` and `normalizeBuiltinFeatureSettings(documents, warn)`. `DEFAULT_DISABLED_BUILTIN_FEATURES` and `COMPACT_RECOVERY_FEATURE` are the only sources for those two defaults; `src/ctx-tool-catalog.ts` owns the canonical tool-name lists.
-- `mcp-bridge.ts: bootstrapMCPTools(pi, script, { disabledTools })`: filters at the `pi.registerTool` boundary only.
-- `extension.ts`: `ensureBuiltinFeatures(ctx)` caches the decoded settings per extension instance; `session_before_compact` / `session_compact` gate on `compactRecoveryDisabled`.
+- `mcp-bridge.ts: bootstrapMCPTools(pi, script, { disabledTools, tidyToolDisplay })`: filters at the `pi.registerTool` boundary only. The display flag may copy a Pi-side schema and renderer; it must not change the filter or `routeAllShell`.
+- `tidy-tool-display-settings.ts`: `loadTidyToolDisplaySettings(projectDir, warn, home?)` and `normalizeTidyToolDisplay(documents, warn)`. This decoder never reads `toolReplacements`, `extensionAdapters`, `purposeDisplay`, or tidy's private settings file.
+- `tidy-tool-display.ts`: schema copy, argument strip, and two-line renderer. It must not import tidy.
+- `extension.ts`: `ensureBuiltinFeatures(ctx)` caches the decoded settings per extension instance; `session_before_compact` / `session_compact` gate on `compactRecoveryDisabled`. The same instance reads `tidyToolDisplay` once and passes it into replacement installation and bridge startup.
 - `src/adapters/opencode/plugin.ts`: applies its own host policy (administrative tools excluded from the OpenCode/Kilo native map) because it consumes the same registry.
-- `tool-replacements.ts`: `installToolReplacements(pi, cwd, settings, sdk, warn) -> { bash, read }`, `createBoundedRead`, and pure `formatReadText`.
+- `tool-replacements.ts`: `installToolReplacements(pi, cwd, settings, sdk, warn, options?) -> { bash, read }`, `createBoundedRead`, and pure `formatReadText`. `options.tidyToolDisplay` may wrap an already activated replacement; it must not change ownership checks or the returned policy.
 - `system-prompt-guideline.ts`: pure `stripBashFileOperationsGuideline(text)` and `filterProviderPayload(payload)`; the extension registers them from `before_provider_request`.
 - `mcp-bridge.ts`: effective Bash policy selects Pi-specific ctx descriptions and prompt metadata.
 
@@ -22,7 +24,7 @@ The package's `pi.extensions` and `.pi/extensions/context-mode/index.ts` must po
 
 ## 3. Configuration and result contracts
 
-See README's **Optional native tool replacements (Pi)** and **Disabling built-in features (Pi)** sections for the user-facing configuration examples and limitations. Reuse `resolvePiGlobalSettingsPath` and `resolveProjectSettingsPaths(projectDir, "pi")`; do not read Pi's generic settings or Claude/Trellis settings for either feature.
+See README's **Optional native tool replacements (Pi)**, **Optional tidy-style tool display (Pi)**, and **Disabling built-in features (Pi)** sections for the user-facing configuration examples and limitations. Reuse `resolvePiGlobalSettingsPath` and `resolveProjectSettingsPaths(projectDir, "pi")`; do not read Pi's generic settings, Claude/Trellis settings, or `~/.pi/agent/pi-tidy-tools.json` for these features.
 
 Both switches default off. Explicit project fields override global fields, then defaults. Read defaults are owned by `DEFAULT_READ_LIMITS`: 300 source lines and 10,240 UTF-8 bytes. Limits apply to source text; short continuation notices are additional metadata. Images and native image warnings are exempt.
 
@@ -62,6 +64,13 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 | Read offset/limit not positive safe integers | Error |
 | Access/EOF/cancellation failure | Preserve failure, not a successful-looking excerpt |
 | First source line exceeds byte budget | No source fragment; explicit guidance, no same-offset continuation loop |
+| `tidyToolDisplay` absent or false | No `reasoning` field; existing one-line ctx renderers; replacement ownership and routing unchanged |
+| `tidyToolDisplay.enabled` true | Required `reasoning` on the Pi-side copy only; two-line self shell for `ctx_*` and for Bash/Read only after that replacement activates |
+| Invalid `tidyToolDisplay` value, object, or unreadable settings file | Disable only the display and warn; do not disable Bash/Read replacements |
+| Invalid `toolReplacements` object | Does not disable `tidyToolDisplay` |
+| Tool schema already owns `reasoning` | Do not inject, overwrite, or strip it; keep that tool's current renderer and execute normally |
+| Missing, blank, or non-text `reasoning` | Still execute; folded line 1 falls back to the target, or the tool name when there is no target |
+| Display flag on while another extension owns bash/read | Skip that replacement and warn; stronger shell routing stays off |
 
 ## 5. Good / Base / Bad cases
 
@@ -78,6 +87,7 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 - `tests/adapters/pi-builtin-feature-settings.test.ts`: defaults, per-feature classification, tier replacement, deduplication, agent-facing tool entries, every invalid shape, unknown-entry warning text, settings-path isolation, ENOENT, malformed file and directory-as-file.
 - `tests/pi-extension.test.ts`: filter behavior through the real MCP child (`disabledTools: []` restores the administrative tools; a single-name filter leaves the rest; filtered names are absent from `registerTool`); `compactRecovery` suppression (no send and no retirement marker, compact counter still incremented), default-enabled compatibility, and fallback-to-defaults on an invalid list; registration/prompt metadata, lazy lifecycle integration, and `before_provider_request` registration plus its inactive-policy no-op.
 - `tests/adapters/pi-tool-replacements.test.ts`: defaults/four combinations, configuration precedence/validation, ownership, Bash tool-summary suppression with independent fallback guidance, exact line/byte caps, pagination, images, cancellation, effective policy, and the decoded `disabledTools` set passed to the lazy bootstrap.
+- `tests/adapters/pi-tidy-tool-display.test.ts`: display default, project override, invalid isolation from `toolReplacements`, schema copy and strip, missing reasoning still executes, foreign bash/read ownership, and the extension passing the cached flag without changing `routeAllShell`.
 - `tests/core/server.test.ts`: `tools/list` advertises the complete catalog, `REGISTERED_CTX_TOOLS` annotations cover all eleven tools, and the ZodEffects guard still distinguishes an undetectable shape from a legitimately empty one.
 - `tests/opencode-plugin.test.ts`: the OpenCode/Kilo native map still excludes the administrative tools under its own policy.
 - `tests/adapters/pi-system-prompt-guideline.test.ts`: bullet variants, near-miss and non-LF fail-closed, every instruction slot shape, untouched history/tool schemas, reference preservation, idempotence, hostile payloads, and the real extension wiring (inactive policy is a no-op; effective policy strips after another handler rewrote the system text).

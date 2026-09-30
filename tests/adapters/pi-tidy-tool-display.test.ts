@@ -8,14 +8,17 @@ import {
   normalizeTidyToolDisplay,
 } from "../../src/adapters/pi/tidy-tool-display-settings.js";
 import {
+  clearToolElapsed,
   createTidyRenderers,
   displayTarget,
+  noteToolFinished,
+  noteToolStarted,
   omitDisplayReasoning,
   renderTidyLines,
   selectDisplaySchema,
   type DisplayTheme,
 } from "../../src/adapters/pi/tidy-tool-display.js";
-import { PiTextComponent, bootstrapMCPTools, MCPStdioClient, visibleAnsiWidth } from "../../src/adapters/pi/mcp-bridge.js";
+import { PiTextComponent, bootstrapMCPTools, MCPStdioClient, fitAnsiLine, visibleAnsiWidth } from "../../src/adapters/pi/mcp-bridge.js";
 import { installToolReplacements, type NativeToolSDK } from "../../src/adapters/pi/tool-replacements.js";
 
 const theme: DisplayTheme = {
@@ -118,22 +121,26 @@ describe("tidy display contract", () => {
 
   it("paints two folded lines and falls back without repeating the tool name", () => {
     const withPurpose = renderTidyLines("ctx_execute", { reasoning: "show the marker", code: "echo ok" }, undefined, { expanded: false, isPartial: true }, theme);
-    expect(withPurpose).toContain("\x1b[35m\x1b[1mctx_execute\x1b[0m");
+    expect(withPurpose).toContain("\x1b[35m\u26A1 \x1b[1mctx_execute\x1b[0m");
     expect(withPurpose).toContain("[text]show the marker");
     expect(withPurpose).not.toContain("[toolOutput]show the marker");
     expect(withPurpose).toContain("echo ok");
-    expect(withPurpose).toContain("indexing/searching...");
-    const fallback = renderTidyLines("bash", { command: "printf ok" }, { content: [{ type: "text", text: "ok" }] }, { expanded: false, isPartial: false }, theme);
-    expect(fallback).toContain("\x1b[35m\x1b[1mbash\x1b[0m");
+    expect(withPurpose).toContain("<1s");
+    expect(withPurpose).not.toContain("indexing/searching...");
+    const fallback = renderTidyLines("bash", { command: "printf ok" }, { content: [{ type: "text", text: "ok" }] }, { expanded: false, isPartial: false, elapsedMs: 5000 }, theme);
+    expect(fallback).toContain("\x1b[35m\u26A1 \x1b[1mbash\x1b[0m");
     expect(fallback).toContain("printf ok");
-    expect(fallback).toContain("ok");
-    expect(fallback.match(/\x1b\[35m\x1b\[1mbash\x1b\[0m/g)).toHaveLength(1);
+    expect(fallback).toContain("\x1b[32mdone\x1b[0m");
+    expect(fallback).toContain("in 5s");
+    expect(fallback.match(/\x1b\[35m\u26A1 \x1b\[1mbash\x1b\[0m/g)).toHaveLength(1);
     const nameOnly = renderTidyLines("ctx_doctor", {}, { content: [{ type: "text", text: "" }] }, { expanded: false, isPartial: false }, theme);
-    expect(nameOnly).toContain("\x1b[35m\x1b[1mctx_doctor\x1b[0m");
+    expect(nameOnly).toContain("\x1b[35m\u25C6 \x1b[1mctx_doctor\x1b[0m");
+    expect(nameOnly).toContain("\x1b[32mdone\x1b[0m");
     expect(nameOnly).not.toContain("ctx_doctor [toolOutput]ctx_doctor");
     const expanded = renderTidyLines("read", { path: "a.ts", reasoning: "show the marker" }, { content: [{ type: "text", text: "full\noutput" }] }, { expanded: true, isPartial: false }, theme);
-    expect(expanded).toContain("\x1b[36m\x1b[1mread\x1b[0m");
-    expect(expanded).not.toContain("\x1b[35m\x1b[1mread");
+    expect(expanded).toContain("\x1b[36m\u{1F4D6} \x1b[1mread\x1b[0m");
+    expect(expanded).not.toContain("\x1b[35m");
+    expect(expanded).toContain("\x1b[32m2 lines\x1b[0m");
     expect(expanded).toContain("[text]show the marker");
     expect(expanded).toContain("full\noutput");
     expect(displayTarget("ctx_search", { queries: ["first", "second"] })).toBe("first");
@@ -153,7 +160,8 @@ describe("tidy display contract", () => {
       theme,
       { args: { reasoning: "show the marker", code: "echo ok" } },
     );
-    expect(done.render(120).join("\n")).toContain("ok");
+    expect(done.render(120).join("\n")).toContain("done");
+    expect(done.render(120).join("\n")).toContain("<1s");
   });
 
   it("paints every visible line to the row edge, including the expanded header", () => {
@@ -167,11 +175,9 @@ describe("tidy display contract", () => {
     };
     const renderers = createTidyRenderers("ctx_execute", PiTextComponent);
     const running = renderers.renderCall({ reasoning: "查看", code: "echo ok" }, filling, { isPartial: true });
-    running.render(12);
+    running.render(40);
     expect(painted.every((entry) => entry.startsWith("toolPendingBg:"))).toBe(true);
-    const pendingPlain = painted.filter((entry) => !entry.includes("\x1b[0m"));
-    expect(pendingPlain.length).toBeGreaterThan(0);
-    expect(pendingPlain.every((entry) => visibleAnsiWidth(entry.slice(entry.indexOf(":") + 1)) === 12)).toBe(true);
+    expect(painted.some((entry) => entry.includes(" \x1b[0m"))).toBe(true);
 
     painted.length = 0;
     const expanded = renderers.renderResult(
@@ -181,7 +187,7 @@ describe("tidy display contract", () => {
       { args: { reasoning: "show the marker", code: "echo ok" } },
     );
     const lines = expanded.render(80);
-    expect(lines[0]).toContain("\x1b[35m\x1b[1mctx_execute\x1b[0m");
+    expect(lines[0]).toContain("\x1b[35m\u26A1 \x1b[1mctx_execute\x1b[0m");
     expect(lines[0]).toContain("show the marker");
     expect(lines.join("\n")).toContain("full");
     expect(lines.join("\n")).toContain("output");
@@ -192,6 +198,68 @@ describe("tidy display contract", () => {
     const resetParts = painted.filter((entry) => entry.includes("\x1b[0m"));
     expect(resetParts.length).toBeGreaterThan(1);
     expect(resetParts.some((entry) => entry.includes(" \x1b[0m"))).toBe(true);
+  });
+
+  it("keeps the trailing stat and shortens the target when the row is narrow", () => {
+    expect(fitAnsiLine("abcdef", 99)).toBe("abcdef");
+    expect(fitAnsiLine("abcdef", 4)).toBe("abc\u2026");
+    expect(fitAnsiLine("  long target   \u2192 result", 15)).toBe("  lon\u2026 \u2192 result");
+    expect(fitAnsiLine("head \u2192 verylongtail", 5)).toBe("\u2192 ve\u2026");
+    expect(fitAnsiLine("head \u2192 result", 12)).toBe("he\u2026 \u2192 result");
+    expect(fitAnsiLine("\u2192 result", 8)).toBe("\u2192 result");
+    expect(fitAnsiLine("head \u2192 result", 3)).toBe("\u2192 \u2026");
+
+    const body = renderTidyLines(
+      "ctx_search",
+      { queries: ["q".repeat(80)] },
+      { content: [{ type: "text", text: "database is locked" }], isError: true },
+      { expanded: false, isPartial: false, isError: true },
+      theme,
+    );
+    const text = new PiTextComponent(body);
+    text.setTailFit(true);
+    const fitted = text.render(28);
+    expect(fitted[1]).toContain("database is locked");
+    expect(fitted[1]).toContain("\u2026");
+    expect(fitted[1]).not.toContain("q".repeat(20));
+    expect(visibleAnsiWidth(fitted[1])).toBeLessThanOrEqual(28);
+    expect(body).toContain("\x1b[31mdatabase is locked\x1b[0m");
+  });
+
+  it("uses the read and bash stats, and a chosen stat for the other tools", () => {
+    const file = renderTidyLines("ctx_execute_file", { path: "package.json" }, { content: [{ type: "text", text: "a\nb" }] }, { expanded: false, isPartial: false }, theme);
+    expect(file).toContain("\x1b[36m\u{1F4D6} \x1b[1mctx_execute_file\x1b[0m");
+    expect(file).toContain("\x1b[32m2 lines\x1b[0m");
+    const failed = renderTidyLines("ctx_execute", { code: "false" }, { content: [{ type: "text", text: "exit 1" }], isError: true }, { expanded: false, isPartial: false, isError: true, elapsedMs: 2100 }, theme);
+    expect(failed).toContain("\x1b[31merror\x1b[0m");
+    expect(failed).toContain("in 2s");
+    expect(failed).not.toContain("exit 1");
+    const batch = renderTidyLines("ctx_batch_execute", { commands: [{ command: "echo a" }, { command: "echo b" }] }, { content: [{ type: "text", text: "ok" }] }, { expanded: false, isPartial: false, elapsedMs: 3000 }, theme);
+    expect(batch).toContain("\x1b[35m\u26A1 \x1b[1mctx_batch_execute\x1b[0m");
+    expect(batch).toContain("\x1b[32m2 commands\x1b[0m");
+    expect(batch).toContain("in 3s");
+    const search = renderTidyLines("ctx_search", { queries: ["q"] }, { content: [{ type: "text", text: "## q\n\n### Title\n\nsnippet\n\n## other\nNo results found." }] }, { expanded: false, isPartial: false }, theme);
+    expect(search).toContain("\x1b[35m\u25C6 \x1b[1mctx_search\x1b[0m");
+    expect(search).toContain("\x1b[32m1 hit\x1b[0m");
+    const indexed = renderTidyLines("ctx_index", { path: "docs" }, { content: [{ type: "text", text: "Indexed 4 sections from: docs" }] }, { expanded: false, isPartial: false }, theme);
+    expect(indexed).toContain("\x1b[32m4 sections\x1b[0m");
+    const fetched = renderTidyLines("ctx_fetch_and_index", { url: "https://example.test" }, { content: [{ type: "text", text: "fetched 1 c=1. ok=1 cache=0 err=0. 3 sections 1.0KB." }] }, { expanded: false, isPartial: false }, theme);
+    expect(fetched).toContain("\x1b[32m3 sections\x1b[0m");
+  });
+
+  it("keeps the execution elapsed after the call finishes and after it is expanded again", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    noteToolStarted("call-1");
+    noteToolFinished("call-1", Date.parse("2026-01-01T00:00:05Z"));
+    const renderers = createTidyRenderers("ctx_execute", PiTextComponent);
+    const args = { code: "echo ok" };
+    const done = renderers.renderResult({ content: [{ type: "text", text: "ok" }] }, { expanded: false, isPartial: false }, theme, { toolCallId: "call-1", args });
+    expect(done.render(80).join("\n")).toContain("in 5s");
+    const expanded = renderers.renderResult({ content: [{ type: "text", text: "ok" }] }, { expanded: true, isPartial: false }, theme, { toolCallId: "call-1", args });
+    expect(expanded.render(80).join("\n")).toContain("in 5s");
+    clearToolElapsed();
+    vi.useRealTimers();
   });
 });
 

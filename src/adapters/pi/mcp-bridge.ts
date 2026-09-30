@@ -160,6 +160,7 @@ const INIT_RETRY_DELAY_MS = 1_000;
 export class PiTextComponent {
   private text: string;
   private lineFill?: (line: string) => string;
+  private tailFit = false;
 
   constructor(text = "") {
     this.text = text;
@@ -174,6 +175,11 @@ export class PiTextComponent {
     this.lineFill = fill;
   }
 
+  /** Line 2 keeps the arrow tail. Expanded lines after it stay end-truncated. */
+  setTailFit(enabled: boolean): void {
+    this.tailFit = enabled;
+  }
+
   invalidate(): void {
     // Stateless renderer: no cached layout to invalidate.
   }
@@ -184,7 +190,10 @@ export class PiTextComponent {
     return this.text
       .replace(/\t/g, "   ")
       .split(/\r?\n/)
-      .map((line) => this.lineFill ? fillAnsiLine(line, maxWidth, this.lineFill) : truncateAnsiLine(line, maxWidth));
+      .map((line, index) => {
+        const fitted = this.tailFit && index === 1 ? fitAnsiLine(line, maxWidth) : line;
+        return this.lineFill ? fillAnsiLine(fitted, maxWidth, this.lineFill) : truncateAnsiLine(fitted, maxWidth);
+      });
   }
 }
 
@@ -327,7 +336,30 @@ function fillAnsiLine(line: string, width: number, fill: (line: string) => strin
   return padded.split(ANSI_RESET).map((segment) => fill(segment + ANSI_RESET)).join("");
 }
 
-export function truncateAnsiLine(line: string, maxWidth: number): string {
+export function truncateAnsiLine(line: string, maxWidth: number, ellipsis = ""): string {
+  if (maxWidth <= 0) return "";
+  if (!ellipsis || visibleAnsiWidth(line) <= maxWidth) return cutAnsiLine(line, maxWidth);
+  const markWidth = visibleAnsiWidth(ellipsis);
+  if (markWidth >= maxWidth) return cutAnsiLine(ellipsis, maxWidth);
+  return cutAnsiLine(line, maxWidth - markWidth) + ellipsis;
+}
+
+/** Keep the text from the first arrow, and shorten whatever is in front of it. */
+export function fitAnsiLine(line: string, width: number): string {
+  const max = Math.max(1, width);
+  if (visibleAnsiWidth(line) <= max) return line;
+  const arrowIndex = line.indexOf("\u2192");
+  if (arrowIndex < 0) return truncateAnsiLine(line, max, "\u2026");
+  const tail = line.slice(arrowIndex);
+  const tailWidth = visibleAnsiWidth(tail);
+  if (tailWidth >= max) return truncateAnsiLine(tail, max, "\u2026");
+  const head = line.slice(0, arrowIndex).trimEnd();
+  const headBudget = max - tailWidth - 1;
+  if (headBudget <= 0) return truncateAnsiLine(tail, max, "\u2026");
+  return `${truncateAnsiLine(head, headBudget, "\u2026")} ${tail}`;
+}
+
+function cutAnsiLine(line: string, maxWidth: number): string {
   if (maxWidth <= 0) return "";
   let output = "";
   let visible = 0;

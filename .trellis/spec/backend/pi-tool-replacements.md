@@ -13,7 +13,7 @@ Implementation owners:
 - `builtin-feature-settings.ts`: `loadBuiltinFeatureSettings(projectDir, warn, home?)` and `normalizeBuiltinFeatureSettings(documents, warn)`. `DEFAULT_DISABLED_BUILTIN_FEATURES` and `COMPACT_RECOVERY_FEATURE` are the only sources for those two defaults; `src/ctx-tool-catalog.ts` owns the canonical tool-name lists.
 - `mcp-bridge.ts: bootstrapMCPTools(pi, script, { disabledTools, tidyToolDisplay })`: filters at the `pi.registerTool` boundary only. The display flag may copy a Pi-side schema and renderer; it must not change the filter or `routeAllShell`.
 - `tidy-tool-display-settings.ts`: `loadTidyToolDisplaySettings(projectDir, warn, home?)` and `normalizeTidyToolDisplay(documents, warn)`. This decoder never reads `toolReplacements`, `extensionAdapters`, `purposeDisplay`, or tidy's private settings file.
-- `tidy-tool-display.ts`: schema copy, argument strip, and two-line renderer. It must not import tidy.
+- `tidy-tool-display.ts`: schema copy, argument strip, and two-line renderer. It owns the icon, the trailing stat, and the narrow-row fit. It must not import tidy.
 - `extension.ts`: `ensureBuiltinFeatures(ctx)` caches the decoded settings per extension instance; `session_before_compact` / `session_compact` gate on `compactRecoveryDisabled`. The same instance reads `tidyToolDisplay` once and passes it into replacement installation and bridge startup.
 - `src/adapters/opencode/plugin.ts`: applies its own host policy (administrative tools excluded from the OpenCode/Kilo native map) because it consumes the same registry.
 - `tool-replacements.ts`: `installToolReplacements(pi, cwd, settings, sdk, warn, options?) -> { bash, read }`, `createBoundedRead`, and pure `formatReadText`. `options.tidyToolDisplay` may wrap an already activated replacement; it must not change ownership checks or the returned policy.
@@ -65,7 +65,7 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 | Access/EOF/cancellation failure | Preserve failure, not a successful-looking excerpt |
 | First source line exceeds byte budget | No source fragment; explicit guidance, no same-offset continuation loop |
 | `tidyToolDisplay` absent or false | No `reasoning` field; existing one-line ctx renderers; replacement ownership and routing unchanged |
-| `tidyToolDisplay.enabled` true | Required `reasoning` on the Pi-side copy only; two-line self shell for `ctx_*` and for Bash/Read only after that replacement activates. Folded and expanded lines use the full-width tool background; expanding keeps the two header lines |
+| `tidyToolDisplay.enabled` true | Required `reasoning` on the Pi-side copy only; two-line self shell for `ctx_*` and for Bash/Read only after that replacement activates. Line 2 keeps the trailing stat when the row is narrow and shortens the target with `…`. Failures show the returned error in red there, except Bash and `ctx_execute`, which show `error in <elapsed>`. Folded and expanded lines use the full-width tool background; expanding keeps the two header lines |
 | Invalid `tidyToolDisplay` value, object, or unreadable settings file | Disable only the display and warn; do not disable Bash/Read replacements |
 | Invalid `toolReplacements` object | Does not disable `tidyToolDisplay` |
 | Tool schema already owns `reasoning` | Do not inject, overwrite, or strip it; keep that tool's current renderer and execute normally |
@@ -79,6 +79,8 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 - **Good:** disabling `compactRecovery` stops both the pre-compaction collection and the post-compaction message, while capture and the compact counter continue.
 - **Good:** reading 601 short lines returns lines 1–300 with offset 301, then 301–600 with offset 601, then the final line.
 - **Good:** an empty file returns empty source without a misleading continuation; UTF-8 and CRLF survive exact excerpts.
+- **Good:** a narrow tool row keeps the trailing stat and ends the shortened target with `…`. A failed search shows the error text in red; a failed `ctx_execute` shows `error in <elapsed>` instead of the error body.
+- **Bad:** cutting the trailing stat off the end of line 2 so the full target can stay visible.
 - **Bad:** interpreting a source line containing `[999 more lines ...]` as actual pagination metadata.
 - **Bad:** treating source=`builtin` as proof that the current tool uses factory defaults. Public runtime options are not available. Users explicitly opt into standard-local defaults, not transparent inheritance of custom shell/image settings.
 

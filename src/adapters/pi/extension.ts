@@ -28,6 +28,7 @@ import type { SessionEvent } from "../../types.js";
 import { bootstrapMCPTools, makeBridgeDiag, isForegroundSession, type BridgeHandle } from "./mcp-bridge.js";
 import { loadToolReplacementSettings } from "./tool-replacement-settings.js";
 import { loadTidyToolDisplaySettings } from "./tidy-tool-display-settings.js";
+import { clearToolElapsed, noteToolFinished, noteToolStarted } from "./tidy-tool-display.js";
 import {
   defaultBuiltinFeatureSettings,
   loadBuiltinFeatureSettings,
@@ -503,6 +504,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   // ── 1. session_start — Initialize session ──────────────
 
   pi.on("session_start", async (event: any, ctx: any) => {
+    clearToolElapsed();
     recoveryContext = ctx;
     recoveryWarnings.clear();
     ensureBuiltinFeatures(ctx);
@@ -568,6 +570,16 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
     } catch {
       // Routing failure — allow passthrough
     }
+  });
+
+  pi.on("tool_execution_start", (event: any) => {
+    ensureTidyDisplay(undefined);
+    if (!tidyToolDisplay) return;
+    noteToolStarted(typeof event?.toolCallId === "string" ? event.toolCallId : undefined);
+  });
+  pi.on("tool_execution_end", (event: any) => {
+    if (!tidyToolDisplay) return;
+    noteToolFinished(typeof event?.toolCallId === "string" ? event.toolCallId : undefined);
   });
 
   // ── 3. tool_result — PostToolUse event capture ─────────
@@ -824,6 +836,7 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
   // ── 7. session_shutdown — Cleanup old sessions ─────────
 
   pi.on("session_shutdown", async () => {
+    clearToolElapsed();
     recovery.reset();
     recoveryContext = undefined;
     try {

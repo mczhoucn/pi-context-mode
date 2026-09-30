@@ -159,6 +159,26 @@ function paint(theme: DisplayTheme, color: string, text: string, bold = false): 
   return theme.fg(color, body);
 }
 
+/**
+ * Same terminal codes tidy hardcodes. Pi theme tokens are different colors.
+ * read matches tidy read/grep; everything else matches tidy bash.
+ */
+const TIDY_CYAN = "\x1b[36m";
+const TIDY_MAGENTA = "\x1b[35m";
+const TIDY_BOLD = "\x1b[1m";
+const TIDY_RESET = "\x1b[0m";
+/** Body text. `toolOutput` is gray. */
+const PURPOSE_COLOR = "text";
+
+function paintToolName(toolName: string): string {
+  const color = toolName === "read" ? TIDY_CYAN : TIDY_MAGENTA;
+  return `${color}${TIDY_BOLD}${toolName}${TIDY_RESET}`;
+}
+
+export function displayBackground(partial: boolean, isError?: boolean): string {
+  return partial ? "toolPendingBg" : isError ? "toolErrorBg" : "toolSuccessBg";
+}
+
 export function renderTidyLines(
   toolName: string,
   params: unknown,
@@ -166,25 +186,38 @@ export function renderTidyLines(
   options: { expanded: boolean; isPartial: boolean; isError?: boolean },
   theme: DisplayTheme,
 ): string {
-  if (options.expanded && !options.isPartial) {
-    return paint(theme, "toolOutput", fullResultText(result));
-  }
   const purpose = displayPurpose(params);
   const target = displayTarget(toolName, params);
   const headline = purpose ?? target;
   const summary = shortResult(toolName, result, options.isPartial);
-  const name = paint(theme, "toolTitle", toolName, true);
-  const line1 = headline ? `${name} ${paint(theme, "toolOutput", headline)}` : name;
+  const name = paintToolName(toolName);
+  const line1 = headline ? `${name} ${paint(theme, PURPOSE_COLOR, headline)}` : name;
   const line2 = target
     ? `${paint(theme, "muted", target)} ${paint(theme, "toolOutput", summary)}`
     : paint(theme, options.isPartial ? "warning" : "toolOutput", summary);
-  const bg = options.isPartial ? "toolPendingBg" : options.isError ? "toolErrorBg" : "toolSuccessBg";
-  const lines = [line1, line2].map((line) => (theme.bg ? theme.bg(bg, line) : line));
+  const lines = [line1, line2];
+  if (options.expanded && !options.isPartial) {
+    const full = fullResultText(result);
+    if (full.length > 0) lines.push(full);
+  }
   return lines.join("\n");
 }
 
 interface MutableText {
   setText(text: string): void;
+  setLineFill?(fill: ((line: string) => string) | undefined): void;
+}
+
+function showBlock<T extends MutableText>(
+  text: T,
+  body: string,
+  theme: DisplayTheme,
+  partial: boolean,
+  isError?: boolean,
+): void {
+  text.setText(body);
+  const background = displayBackground(partial, isError);
+  text.setLineFill?.(body && theme.bg ? (line) => theme.bg!(background, line) : undefined);
 }
 
 /** Shared call/result split: Pi stacks both renderers, so the idle one must be blank. */
@@ -197,9 +230,13 @@ export function createTidyRenderers<T extends MutableText>(
     renderShell: "self" as const,
     renderCall(args: unknown, theme: DisplayTheme, context: { lastComponent?: unknown; isPartial?: boolean } = {}) {
       const text = reuse(context.lastComponent);
-      text.setText(context.isPartial === false
-        ? ""
-        : renderTidyLines(toolName, args, undefined, { expanded: false, isPartial: true }, theme));
+      const running = context.isPartial !== false;
+      showBlock(
+        text,
+        running ? renderTidyLines(toolName, args, undefined, { expanded: false, isPartial: true }, theme) : "",
+        theme,
+        true,
+      );
       return text;
     },
     renderResult(
@@ -209,13 +246,20 @@ export function createTidyRenderers<T extends MutableText>(
       context: { lastComponent?: unknown; args?: unknown; isError?: boolean } = {},
     ) {
       const text = reuse(context.lastComponent);
-      text.setText(options.isPartial
-        ? ""
-        : renderTidyLines(toolName, context.args, result, {
-          expanded: options.expanded,
-          isPartial: false,
-          isError: context.isError === true || result?.isError === true,
-        }, theme));
+      const isError = context.isError === true || result?.isError === true;
+      showBlock(
+        text,
+        options.isPartial
+          ? ""
+          : renderTidyLines(toolName, context.args, result, {
+            expanded: options.expanded,
+            isPartial: false,
+            isError,
+          }, theme),
+        theme,
+        false,
+        isError,
+      );
       return text;
     },
   };

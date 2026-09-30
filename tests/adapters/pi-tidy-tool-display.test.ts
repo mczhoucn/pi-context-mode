@@ -15,7 +15,7 @@ import {
   selectDisplaySchema,
   type DisplayTheme,
 } from "../../src/adapters/pi/tidy-tool-display.js";
-import { PiTextComponent, bootstrapMCPTools, MCPStdioClient } from "../../src/adapters/pi/mcp-bridge.js";
+import { PiTextComponent, bootstrapMCPTools, MCPStdioClient, visibleAnsiWidth } from "../../src/adapters/pi/mcp-bridge.js";
 import { installToolReplacements, type NativeToolSDK } from "../../src/adapters/pi/tool-replacements.js";
 
 const theme: DisplayTheme = {
@@ -118,19 +118,24 @@ describe("tidy display contract", () => {
 
   it("paints two folded lines and falls back without repeating the tool name", () => {
     const withPurpose = renderTidyLines("ctx_execute", { reasoning: "show the marker", code: "echo ok" }, undefined, { expanded: false, isPartial: true }, theme);
-    expect(withPurpose).toContain("[toolTitle]*ctx_execute*");
-    expect(withPurpose).toContain("show the marker");
+    expect(withPurpose).toContain("\x1b[35m\x1b[1mctx_execute\x1b[0m");
+    expect(withPurpose).toContain("[text]show the marker");
+    expect(withPurpose).not.toContain("[toolOutput]show the marker");
     expect(withPurpose).toContain("echo ok");
     expect(withPurpose).toContain("indexing/searching...");
     const fallback = renderTidyLines("bash", { command: "printf ok" }, { content: [{ type: "text", text: "ok" }] }, { expanded: false, isPartial: false }, theme);
-    expect(fallback).toContain("[toolTitle]*bash*");
+    expect(fallback).toContain("\x1b[35m\x1b[1mbash\x1b[0m");
     expect(fallback).toContain("printf ok");
     expect(fallback).toContain("ok");
-    expect(fallback.match(/\*bash\*/g)).toHaveLength(1);
+    expect(fallback.match(/\x1b\[35m\x1b\[1mbash\x1b\[0m/g)).toHaveLength(1);
     const nameOnly = renderTidyLines("ctx_doctor", {}, { content: [{ type: "text", text: "" }] }, { expanded: false, isPartial: false }, theme);
-    expect(nameOnly).toContain("[toolTitle]*ctx_doctor*");
-    expect(nameOnly).not.toContain("*ctx_doctor* [toolOutput]ctx_doctor");
-    expect(renderTidyLines("read", { path: "a.ts" }, { content: [{ type: "text", text: "full\noutput" }] }, { expanded: true, isPartial: false }, theme)).toContain("full\noutput");
+    expect(nameOnly).toContain("\x1b[35m\x1b[1mctx_doctor\x1b[0m");
+    expect(nameOnly).not.toContain("ctx_doctor [toolOutput]ctx_doctor");
+    const expanded = renderTidyLines("read", { path: "a.ts", reasoning: "show the marker" }, { content: [{ type: "text", text: "full\noutput" }] }, { expanded: true, isPartial: false }, theme);
+    expect(expanded).toContain("\x1b[36m\x1b[1mread\x1b[0m");
+    expect(expanded).not.toContain("\x1b[35m\x1b[1mread");
+    expect(expanded).toContain("[text]show the marker");
+    expect(expanded).toContain("full\noutput");
     expect(displayTarget("ctx_search", { queries: ["first", "second"] })).toBe("first");
     expect(displayTarget("ctx_fetch_and_index", { requests: [{ url: "https://example.test" }] })).toBe("https://example.test");
     expect(displayTarget("ctx_execute", { code: "echo ok" })).toBe("echo ok");
@@ -149,6 +154,44 @@ describe("tidy display contract", () => {
       { args: { reasoning: "show the marker", code: "echo ok" } },
     );
     expect(done.render(120).join("\n")).toContain("ok");
+  });
+
+  it("paints every visible line to the row edge, including the expanded header", () => {
+    const painted: string[] = [];
+    const filling: DisplayTheme = {
+      ...theme,
+      bg: (color, text) => {
+        painted.push(`${color}:${text}`);
+        return `{${color}}${text}`;
+      },
+    };
+    const renderers = createTidyRenderers("ctx_execute", PiTextComponent);
+    const running = renderers.renderCall({ reasoning: "查看", code: "echo ok" }, filling, { isPartial: true });
+    running.render(12);
+    expect(painted.every((entry) => entry.startsWith("toolPendingBg:"))).toBe(true);
+    const pendingPlain = painted.filter((entry) => !entry.includes("\x1b[0m"));
+    expect(pendingPlain.length).toBeGreaterThan(0);
+    expect(pendingPlain.every((entry) => visibleAnsiWidth(entry.slice(entry.indexOf(":") + 1)) === 12)).toBe(true);
+
+    painted.length = 0;
+    const expanded = renderers.renderResult(
+      { content: [{ type: "text", text: "full\n\noutput\x1b[0m!" }] },
+      { expanded: true, isPartial: false },
+      filling,
+      { args: { reasoning: "show the marker", code: "echo ok" } },
+    );
+    const lines = expanded.render(80);
+    expect(lines[0]).toContain("\x1b[35m\x1b[1mctx_execute\x1b[0m");
+    expect(lines[0]).toContain("show the marker");
+    expect(lines.join("\n")).toContain("full");
+    expect(lines.join("\n")).toContain("output");
+    expect(painted.length).toBeGreaterThanOrEqual(4);
+    expect(painted.every((entry) => entry.startsWith("toolSuccessBg:"))).toBe(true);
+    const widthOf = (entry: string) => visibleAnsiWidth(entry.slice(entry.indexOf(":") + 1));
+    expect(painted.filter((entry) => !entry.includes("\x1b[0m")).every((entry) => widthOf(entry) === 80)).toBe(true);
+    const resetParts = painted.filter((entry) => entry.includes("\x1b[0m"));
+    expect(resetParts.length).toBeGreaterThan(1);
+    expect(resetParts.some((entry) => entry.includes(" \x1b[0m"))).toBe(true);
   });
 });
 

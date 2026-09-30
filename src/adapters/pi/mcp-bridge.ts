@@ -159,6 +159,7 @@ const INIT_RETRY_DELAY_MS = 1_000;
 
 export class PiTextComponent {
   private text: string;
+  private lineFill?: (line: string) => string;
 
   constructor(text = "") {
     this.text = text;
@@ -168,16 +169,22 @@ export class PiTextComponent {
     this.text = text;
   }
 
+  /** Optional full-width paint. Applied after padding, so the background reaches the row edge. */
+  setLineFill(fill: ((line: string) => string) | undefined): void {
+    this.lineFill = fill;
+  }
+
   invalidate(): void {
     // Stateless renderer: no cached layout to invalidate.
   }
 
   render(width: number): string[] {
     if (!this.text || this.text.trim() === "") return [];
+    const maxWidth = Math.max(1, width);
     return this.text
       .replace(/\t/g, "   ")
       .split(/\r?\n/)
-      .map((line) => truncateAnsiLine(line, Math.max(1, width)));
+      .map((line) => this.lineFill ? fillAnsiLine(line, maxWidth, this.lineFill) : truncateAnsiLine(line, maxWidth));
   }
 }
 
@@ -285,6 +292,39 @@ function graphemeWidth(segment: string): number {
   // Regional indicator symbols render as wide emoji flags in Pi's TUI.
   if (cp >= 0x1f1e6 && cp <= 0x1f1ff) return 2;
   return charWidth(cp);
+}
+
+const ANSI_RESET = "\x1b[0m";
+
+/** Visible columns, ignoring terminal color codes. CJK and emoji count as two. */
+export function visibleAnsiWidth(line: string): number {
+  let visible = 0;
+  let index = 0;
+  while (index < line.length) {
+    const escape = extractTerminalEscape(line, index);
+    if (escape) {
+      index += escape.length;
+      continue;
+    }
+    let end = index + 1;
+    while (end < line.length && !extractTerminalEscape(line, end)) end++;
+    for (const { segment } of GRAPHEME_SEGMENTER.segment(line.slice(index, end))) {
+      visible += graphemeWidth(segment);
+    }
+    index = end;
+  }
+  return visible;
+}
+
+/**
+ * Pad to the row width, then paint. A full reset inside the line clears an
+ * enclosing background, so each segment is painted again.
+ */
+function fillAnsiLine(line: string, width: number, fill: (line: string) => string): string {
+  const fitted = truncateAnsiLine(line, width);
+  const padded = fitted + " ".repeat(Math.max(0, width - visibleAnsiWidth(fitted)));
+  if (!padded.includes(ANSI_RESET)) return fill(padded);
+  return padded.split(ANSI_RESET).map((segment) => fill(segment + ANSI_RESET)).join("");
 }
 
 export function truncateAnsiLine(line: string, maxWidth: number): string {

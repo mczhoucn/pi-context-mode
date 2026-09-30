@@ -65,7 +65,7 @@ Check ownership using the runtime-bound `getAllTools()` projection, not an exten
 | Access/EOF/cancellation failure | Preserve failure, not a successful-looking excerpt |
 | First source line exceeds byte budget | No source fragment; explicit guidance, no same-offset continuation loop |
 | `tidyToolDisplay` absent or false | No `reasoning` field; existing one-line ctx renderers; replacement ownership and routing unchanged |
-| `tidyToolDisplay.enabled` true | Required `reasoning` on the Pi-side copy only; two-line self shell for `ctx_*` and for Bash/Read only after that replacement activates |
+| `tidyToolDisplay.enabled` true | Required `reasoning` on the Pi-side copy only; two-line self shell for `ctx_*` and for Bash/Read only after that replacement activates. Folded and expanded lines use the full-width tool background; expanding keeps the two header lines |
 | Invalid `tidyToolDisplay` value, object, or unreadable settings file | Disable only the display and warn; do not disable Bash/Read replacements |
 | Invalid `toolReplacements` object | Does not disable `tidyToolDisplay` |
 | Tool schema already owns `reasoning` | Do not inject, overwrite, or strip it; keep that tool's current renderer and execute normally |

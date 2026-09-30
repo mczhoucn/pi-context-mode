@@ -358,12 +358,21 @@ describe("P0-2: ctx_search schema/runtime contract", () => {
     expect(schema.safeParse({ queries: [] }).success).toBe(false);
   });
 
-  test("blank query strings are rejected", async () => {
+  test("empty query strings are rejected without advertising a regex pattern", async () => {
     const schema = await load();
     expect(schema.safeParse({ queries: [""] }).success).toBe(false);
-    expect(schema.safeParse({ queries: ["a", "  "] }).success).toBe(false);
-    // Whitespace-only entries are rejected, not silently dropped.
-    expect(schema.safeParse({ queries: ["\t"] }).success).toBe(false);
+    // Whitespace-only is not a wire-schema regex. Advertising pattern "\\S"
+    // made a model return queries as a broken string before Pi's array check.
+    // The handler still rejects these; the wire schema must not grow a pattern.
+    expect(schema.safeParse({ queries: ["a", "  "] }).success).toBe(true);
+    expect(schema.safeParse({ queries: ["\t"] }).success).toBe(true);
+    const { toJsonSchemaCompat } = await import(
+      "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js",
+    );
+    const advertised = toJsonSchemaCompat(schema) as {
+      properties?: { queries?: { items?: { pattern?: string } } };
+    };
+    expect(advertised.properties?.queries?.items?.pattern).toBeUndefined();
   });
 
   test("singular `query` is NOT a declared parameter (alias was unreachable)", async () => {

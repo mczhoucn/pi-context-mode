@@ -95,14 +95,16 @@ export function buildCtxSearchInputSchema(isSharedMode: boolean) {
     : ({} as Record<string, never>);
 
   return z.object({
-    // Required + min(1) + per-item min(1): the wire schema now rejects the
-    // empty-object and empty-array shapes the handler already rejected at
-    // runtime, so tools/list and the handler agree on the same contract.
-    // `.regex(/\S/)` rejects whitespace-only entries too — without it,
-    // `{queries: ["  "]}` passed validation and the handler silently dropped
-    // the entry, turning a malformed call into an empty search.
+    // Required + min(1) + per-item min(1): the wire schema rejects the
+    // empty-object, empty-array, and empty-string shapes the handler also
+    // rejects. Do not add a regex check here. zod-to-json-schema advertises
+    // it as `pattern: "\\S"`. Grok then returned `queries` as the broken
+    // string `["\", "\"]` — the words inside the quotes were already
+    // gone — while the same response's pattern-free queries array arrived
+    // intact. Pi validates that JSON Schema before execute, so the server
+    // never saw the call. Whitespace-only entries are rejected by the handler.
     queries: z.preprocess(coerceJsonArray, z
-      .array(z.string().min(1).regex(/\S/, "must contain a non-whitespace character"))
+      .array(z.string().min(1))
       .min(1)
       .describe("Array of search queries (at least one, non-blank). Batch related questions in one call.")),
     // limit: z.coerce.number() (not z.number()) — OpenCode's native

@@ -69,7 +69,7 @@ Context Mode 只读取以下两个位置：
 
 **原来：** Pi 适配器会在 `before_agent_start` 阶段组装一段静态路由提示，再通过 Pi 的 `context` hook 作为额外消息追加给模型。这段消息会告诉模型工具层级，以及什么时候选择 `ctx_execute`、`ctx_execute_file`、`ctx_batch_execute`、`ctx_search` 等工具。
 
-**现在：** Pi 适配器在注册工具时，把稳定的工具选择说明放进 Pi 原生的 `promptSnippet` / `promptGuidelines` 元数据中。`before_agent_start` 只保留 active memory、resume data 等动态会话上下文，不再追加静态路由提示。
+**现在：** Pi 适配器在注册工具时，把稳定的工具选择说明放进 Pi 原生的 `promptSnippet` / `promptGuidelines` 元数据中。MCP bridge 会在 `session_start` 阶段启动并等待完成，所以首轮模型请求已经拥有 ctx 工具及其说明；只执行 CLI 命令时不会启动它。`before_agent_start` 只保留 active memory、resume data 等动态会话上下文，不再追加静态路由提示。
 
 **好处：** 路由说明会直接附着在相关工具上，不必每轮重复发送；稳定的提示词前缀更容易被 provider 缓存；动态会话信息也不会再和静态工具说明混在同一条消息里。
 

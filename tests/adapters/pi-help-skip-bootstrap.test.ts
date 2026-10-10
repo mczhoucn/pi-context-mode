@@ -1,17 +1,17 @@
 import "../setup-home";
 /**
- * Pi extension — lazy MCP bridge bootstrap for real agent turns (#534, #809).
+ * Pi extension — session-start MCP bridge bootstrap (#534, #809).
  *
  * Pi may load extensions for CLI-only paths such as `pi --help`, `pi install`,
  * `pi list`, `pi config`, and `pi --list-models`. Those paths do not dispatch
- * an agent turn or provide a dependable `session_shutdown`, so bootstrapping the
- * long-lived MCP bridge during extension discovery can orphan the bridge child
- * (#534) or keep package commands alive forever (#809).
+ * an agent session, so bootstrapping the long-lived MCP bridge during extension
+ * discovery can orphan the bridge child (#534) or keep package commands alive
+ * forever (#809).
  *
- * The bridge should instead start from `before_agent_start`, the lifecycle event
- * that proves Pi is about to run a model call. That keeps ctx_* tools available
- * for interactive/print/subagent runs, including `pi --mode json -p --no-session`,
- * without maintaining a brittle list of every short-lived CLI command.
+ * The bridge starts from `session_start`, which is emitted by Pi's interactive,
+ * print, and RPC agent modes before the first prompt. This makes ctx_* tools and
+ * their native prompt metadata available for the first request without keeping
+ * a bridge for CLI-only commands.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -83,7 +83,7 @@ async function registerWithBootstrapSpy(argv: string[]) {
   return { pi, spy };
 }
 
-describe("piExtension — lazy MCP bootstrap avoids brittle argv detection (#534, #809)", () => {
+describe("piExtension — session-start MCP bootstrap avoids CLI orphans (#534, #809)", () => {
   it.each([
     ["--help"],
     ["-v"],
@@ -110,18 +110,28 @@ describe("piExtension — lazy MCP bootstrap avoids brittle argv detection (#534
     ["--resume"],
     ["--mode", "json", "-p", "--no-session", "task"],
     ["--model", "sonnet", "task"],
-  ])("bootstraps when before_agent_start fires for real agent argv: %s", async (...argv) => {
+  ])("bootstraps at session_start for real agent argv: %s", async (...argv) => {
     const { pi, spy } = await registerWithBootstrapSpy(argv);
+
+    await pi._trigger("session_start", {}, {});
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("does not bootstrap from before_agent_start without session_start", async () => {
+    const { pi, spy } = await registerWithBootstrapSpy(["-p", "task"]);
 
     await pi._trigger("before_agent_start", { prompt: "task", systemPrompt: "" });
 
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it("does not bootstrap more than once per extension registration", async () => {
     const { pi, spy } = await registerWithBootstrapSpy(["-p", "task"]);
 
+    await pi._trigger("session_start", {}, {});
     await pi._trigger("before_agent_start", { prompt: "first", systemPrompt: "" });
     await pi._trigger("before_agent_start", { prompt: "second", systemPrompt: "" });
 

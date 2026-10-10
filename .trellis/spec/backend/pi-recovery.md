@@ -8,7 +8,7 @@ Read when changing Pi lifecycle hooks, recovery delivery/provenance, historical 
 
 - `extension-adapter-settings.ts`: `normalizeExtensionAdapterSettings(documents, warn): boolean`, `loadExtensionAdapterSettings(projectDir, warn, home?): boolean`. The namespace is per extension (`extensionAdapters.<extension>.enabled`); `blackhole` is the only entry today, other entries are inert.
 - `recovery.ts`: `projectRecoveryEvents(events, reason, blackhole)`, `renderRecovery(pluginRoot, events, reason, blackhole)`; instance-scoped `PiRecovery.activate/prepare/failed/compact/filter/reset`.
-- `extension.ts`: thin lifecycle wiring; `before_agent_start` retains lazy bridge/replacements and genuine raw/derived prompt capture, **not recovery generation**.
+- `extension.ts`: thin lifecycle wiring; `session_start` awaits lazy MCP bridge registration, while `before_agent_start` retains replacement setup and genuine raw/derived prompt capture, **not bridge startup or recovery generation**.
 - `hooks/session-directive.mjs`: additive fourth argument `{ historical?, includeGoal?, searchHint?, dataSearchHint?, dataOlderHint? }`; omitted options preserve Claude output. Pi uses the existing guide once, not a duplicate behavioral block.
 
 ## 3. Contracts

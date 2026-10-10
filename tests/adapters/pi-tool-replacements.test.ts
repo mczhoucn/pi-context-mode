@@ -307,7 +307,7 @@ describe("bounded native-style Read", () => {
 });
 
 // Regression gate: the injectable entry must still install replacements before
-// passing EFFECTIVE policy to lazy MCP bootstrap, not merely expose good helpers.
+// passing EFFECTIVE policy to session-start MCP bootstrap, not merely expose good helpers.
 describe("replacement lifecycle wiring", () => {
   it("warns through Pi's non-UI message channel and keeps ctx policy disabled on ownership conflict", async () => {
     const { pi, sdk, tools } = sdkFixture(); tools[0].sourceInfo.source = "lsp";
@@ -321,8 +321,7 @@ describe("replacement lifecycle wiring", () => {
     const { default: extension } = await import("../../src/adapters/pi/extension.js");
     try {
       extension(pi, sdk);
-      // Also covers hosts that reach before_agent_start without session_start.
-      await handlers.before_agent_start({ prompt: "test" }, { hasUI: false });
+      await handlers.session_start({}, { hasUI: false });
       expect(pi.registerTool).not.toHaveBeenCalled();
       expect(bootstrap).toHaveBeenCalledWith(pi, expect.any(String), {
         foreground: false,
@@ -347,7 +346,13 @@ describe("replacement lifecycle wiring", () => {
       extension(pi, sdk);
       expect(pi.registerTool).not.toHaveBeenCalled();
       expect(bootstrap).not.toHaveBeenCalled();
-      await handlers.session_start({}, {});
+      await handlers.session_start({}, { hasUI: false });
+      expect(bootstrap).toHaveBeenCalledExactlyOnceWith(pi, expect.any(String), {
+        foreground: false,
+        routeAllShell: bash,
+        tidyToolDisplay: false,
+        disabledTools: [...DEFAULT_DISABLED_BUILTIN_FEATURES],
+      });
       expect(pi.registerTool).toHaveBeenCalledTimes(Number(bash) + Number(read));
       expect(await handlers.tool_call({ toolName: "bash", input: { command: "curl https://example.com" } })).toMatchObject({ block: true });
       expect(await handlers.tool_call({ toolName: "bash", input: { command: "curl -s -o /tmp/recovery.json https://example.com" } })).toBeUndefined();

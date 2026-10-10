@@ -162,8 +162,8 @@ let _mcpBridge: BridgeHandle | null = null;
  * can `await` the wiring deterministically without relying on internal
  * timing or `setImmediate` polling.
  *
- * Starts as an already-settled promise because the bridge is now bootstrapped
- * lazily from `before_agent_start`, not during extension discovery.
+ * Starts as an already-settled promise because the bridge is bootstrapped
+ * from `session_start`, not during extension discovery.
  */
 export let _mcpBridgeReady: Promise<void> = Promise.resolve();
 
@@ -295,7 +295,7 @@ function handleCommandText(
   return { text };
 }
 
-// ── Pi MCP bridge lazy bootstrap (#534, #809) ───────────
+// ── Pi MCP bridge session bootstrap (#534, #809) ────────
 //
 // Pi loads extensions in several CLI paths that never dispatch an agent turn:
 // top-level help/version, package management (`install`, `list`, ...), config,
@@ -305,11 +305,11 @@ function handleCommandText(
 // #534 short-lived help/version orphan class and the #809 package-command hang
 // (the bridge child's stdio handles kept Pi alive after `install`/`list`).
 //
-// The robust signal is Pi's agent lifecycle itself. `before_agent_start` fires
-// only for invocations that are about to dispatch a model call, including
-// print-mode subagents (`pi --mode json -p --no-session`). We start and await
-// the bridge from that hook so ctx_* tools are present before Pi snapshots the
-// tool registry, while CLI-only commands never spawn a bridge at all.
+// `session_start` is the first lifecycle event shared by Pi's interactive,
+// print, and RPC agent modes. We start and await the bridge there, before the
+// first `before_agent_start` prompt snapshot, so ctx_* declarations and their
+// native prompt metadata reach the first model request. CLI-only commands never
+// emit `session_start`, so they still do not spawn a bridge.
 
 function startPiMCPBridge(
   pi: any,
@@ -514,6 +514,11 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
       await recovery.activate(event?.reason ?? "startup", ctx ?? {});
       db.ensureSession(_sessionId, projectDir);
       db.cleanupOldSessions(7);
+      // Register ctx_* before Pi snapshots before_agent_start's prompt options.
+      // The bridge is still best-effort: startPiMCPBridge consumes bootstrap
+      // failures and emits diagnostics without preventing the session from
+      // opening.
+      await ensureMCPBridge(isForegroundSession(ctx));
     } catch {
       // best effort — never break session start
       if (!_sessionId) {
@@ -657,38 +662,18 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
     }
   });
 
-  // ── 4. before_agent_start — Bootstrap and genuine prompt capture ─
+  // ── 4. before_agent_start — Genuine prompt capture ─────
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     try {
-      // Lazily start and await the MCP bridge only when Pi is about to
-      // dispatch a real agent turn. This is the non-brittle #534/#809 guard:
-      // help/version/package/config CLI paths may load the extension, but they
-      // never fire before_agent_start, so they never spawn server.bundle.mjs.
-      // Subagents (`pi --mode json -p --no-session`) do fire this hook; awaiting
-      // here ensures ctx_* tools are registered before Pi snapshots the tool
-      // registry for the model call. Resolves on bootstrap failure too — the
-      // bridge is best-effort.
-      //
-      // #868: the FOREGROUND interactive session's bridge child is spawned with
-      // the #854 idle reaper disabled (via ctx.hasUI), so a multi-minute human
-      // pause never drops its ctx_* tools. Subagents (hasUI:false) keep the
-      // reaper so abandoned children can't accumulate (#854).
-      //
-      // INVARIANT — deciding foreground on the FIRST before_agent_start is safe
-      // even though the bridge spawns single-flight (first-wins, no sticky
-      // latch): Pi wires the interactive uiContext inside `mode.init()`, which
-      // main.ts AWAITS before dispatching the first prompt — and
-      // before_agent_start is emitted only from the per-turn prompt path. So the
-      // foreground session's first hook ALWAYS observes hasUI:true; subagents are
-      // provably hasUI:false. There is no early-init window where the foreground
-      // transiently reads hasUI:false (that window is scoped to a separate,
-      // buffered credential event). Do NOT add a latch here — it would guard an
-      // unreachable state. (Verified against oh-my-pi: main.ts init→prompt order,
-      // interactive-mode.ts uiContext wiring, executor.ts subagent hasUI:false.)
+      // The MCP bridge is already awaited by session_start. Do not bootstrap
+      // here: Pi snapshots the prompt options before this hook, so a late
+      // registration could make ctx_* callable while still omitting their
+      // promptSnippet/promptGuidelines from the first <tools>/<rules> sections.
+      // Keeping this hook free of bridge startup makes the lifecycle contract
+      // explicit and prevents a missing session_start from being masked.
       ensureBuiltinFeatures(ctx);
       ensureReplacements(ctx);
-      await ensureMCPBridge(isForegroundSession(ctx));
 
       if (!_sessionId) return;
 
@@ -926,9 +911,8 @@ export default function piExtension(pi: any, nativeSDK?: NativeToolSDK): void {
 
   // ── 9. MCP tool bridge (#426) ───────────────────────────
   //
-  // Intentionally no eager bootstrap here. `before_agent_start` is the first
-  // lifecycle signal that proves Pi is about to run a model call; starting the
-  // bridge there keeps ctx_* available for real agent turns while package/help
-  // commands that only load extensions never spawn a long-lived child (#809).
+  // Do not bootstrap during extension discovery. The bridge is started and
+  // awaited by `session_start`; this assignment only gives tests and
+  // CLI-only paths a settled promise until that lifecycle event runs.
   _mcpBridgeReady = Promise.resolve();
 }

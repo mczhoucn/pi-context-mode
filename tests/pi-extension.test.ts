@@ -1756,18 +1756,18 @@ describe("Pi MCP bridge (#426)", () => {
     }, 30_000);
   });
 
-  // ── Wiring: before_agent_start must bootstrap MCP tools
+  // ── Wiring: session_start must bootstrap MCP tools
   //
   // This is the regression that the rest of the suite does NOT catch: if
   // a future refactor drops the `bootstrapMCPTools(pi, …)` call from the
   // Pi lifecycle wiring but keeps the bridge module intact, every other
   // bridge test stays green and the bug silently re-enters. The bridge is
   // intentionally lazy now (#809): extension discovery alone must not spawn a
-  // child, but `before_agent_start` must register at least the canonical ctx_*
-  // set before the model call.
+  // child, but `session_start` must register the canonical ctx_* set before Pi
+  // snapshots the first model prompt.
 
   describe("pi-extension.ts wiring (#426 regression guard)", () => {
-    it("before_agent_start bootstraps and registers ctx_* via pi.registerTool", async () => {
+    it("session_start bootstraps and registers ctx_* metadata via pi.registerTool", async () => {
       const wireApi = createMockPiApi();
       // PI_PROJECT_DIR / CLAUDE_PROJECT_DIR set inside registerPiExtension.
       await registerPiExtension(wireApi, { projectDir: tempDir });
@@ -1776,18 +1776,15 @@ describe("Pi MCP bridge (#426)", () => {
       expect((wireApi.registerTool as any).mock.calls.length).toBe(0);
 
       const mod = await import("../src/adapters/pi/extension.js");
-      await wireApi._trigger("before_agent_start", {
-        prompt: "tool registration smoke",
-        systemPrompt: "",
-      });
+      await wireApi._trigger("session_start", {}, { session_id: "tool-registration-smoke", project_dir: tempDir });
       await mod._mcpBridgeReady;
 
       const calls = (wireApi.registerTool as any).mock.calls as Array<[any]>;
-      const registeredNames = calls.map(([t]) => t?.name).filter(Boolean);
+      const registered = new Map(calls.map(([tool]) => [tool?.name, tool]));
+      const registeredNames = [...registered.keys()].filter(Boolean);
 
       // Same canonical pin as the bridge integration test — but reached
-      // through the Pi lifecycle hook instead of bootstrapMCPTools directly,
-      // so dropping the wiring fails even when the bridge module still works.
+      // through Pi's session lifecycle instead of bootstrapMCPTools directly.
       expect(registeredNames).toEqual(
         expect.arrayContaining([
           "ctx_execute",
@@ -1797,69 +1794,96 @@ describe("Pi MCP bridge (#426)", () => {
           "ctx_fetch_and_index",
         ]),
       );
+      expect(registered.get("ctx_execute")).toMatchObject({
+        promptSnippet: expect.stringContaining("command"),
+        promptGuidelines: expect.arrayContaining([expect.stringContaining("ctx_execute")]),
+      });
+      expect(registered.get("ctx_index")).toMatchObject({
+        promptSnippet: expect.stringContaining("reference"),
+        promptGuidelines: expect.arrayContaining([expect.stringContaining("ctx_index")]),
+      });
 
-      // Cleanup: SIGTERM the bridge child the hook spawned so it does
-      // not leak past this test.
-      const sd = mod.default as any;
-      void sd; // silence unused
+      // before_agent_start captures dynamic context only; it must not start
+      // another bridge or alter the first-turn registration baseline.
+      const countAfterStart = calls.length;
+      await wireApi._trigger("before_agent_start", {
+        prompt: "tool registration smoke",
+        systemPrompt: "",
+      });
+      expect((wireApi.registerTool as any).mock.calls.length).toBe(countAfterStart);
+
+      // Cleanup: SIGTERM the bridge child the session hook spawned.
       await wireApi._trigger("session_shutdown");
     }, 30_000);
 
     // Race regression — comment 4412197109 on PR #472.
     //
-    // Each Pi subagent spawns a fresh `pi --mode json -p --no-session`
-    // process that loads context-mode and then immediately fires
-    // `before_agent_start` to dispatch the LLM call. The lazy MCP bridge
-    // bootstrap (spawn server.bundle.mjs → initialize → tools/list →
-    // pi.registerTool × N) starts in that hook, so without an explicit await
-    // the LLM call would go out with an empty ctx_* tool registry: neither
-    // the callable tools nor their Pi-native Available tools / Guidelines
-    // metadata would be present for that turn.
+    // The session_start handler must await the bridge before Pi can dispatch
+    // the first prompt. Otherwise the first system-prompt snapshot would miss
+    // the callable tools and their native Available tools / Guidelines metadata.
+    // The bridge (spawn server.bundle.mjs → initialize → tools/list →
+    // pi.registerTool × N) must finish before the first system-prompt
+    // snapshot, or the callable tools and their native Available tools /
+    // Guidelines metadata would be absent from that turn.
     //
-    // This test pins the contract: by the time `before_agent_start`
-    // resolves, the canonical ctx_* tools MUST have been registered
-    // through pi.registerTool. The pre-trigger assertion confirms the
-    // race window is open (otherwise the test would pass for the wrong
-    // reason — bridge happened to win the race).
-    it("before_agent_start awaits MCP bridge bootstrap so ctx_* are registered before LLM call", async () => {
+    // This test pins the contract: by the time session_start resolves, the
+    // canonical ctx_* tools MUST have been registered through pi.registerTool.
+    // The pre-release assertion confirms the test really holds the bootstrap
+    // open rather than passing because the bridge won a race.
+    it("session_start awaits MCP bridge bootstrap before the first prompt", async () => {
       const wireApi = createMockPiApi();
-      await registerPiExtension(wireApi, { projectDir: tempDir });
-
-      // Establish a session so before_agent_start does real work
-      // (the handler early-returns when `!_sessionId`).
-      await wireApi._trigger(
-        "session_start",
-        {},
-        { session_id: "race-test", project_dir: tempDir },
-      );
-
-      // Sanity: lazy bootstrap has not started during extension/session setup.
-      // If this ever fails, the bridge became eager again and #809 can regress.
-      const preCalls = (wireApi.registerTool as any).mock.calls.length;
-      expect(preCalls).toBe(0);
-
-      // The race: trigger before_agent_start now. Pi will dispatch the
-      // LLM call as soon as this resolves — so the handler MUST block
-      // until the bridge has registered ctx_* tools.
-      await wireApi._trigger("before_agent_start", {
-        sessionID: "race-test",
-        prompt: "anything",
-        systemPrompt: "",
+      const bridgeMod = await import("../src/adapters/pi/mcp-bridge.js");
+      const originalBootstrap = bridgeMod.bootstrapMCPTools;
+      let markBootstrapEntered!: () => void;
+      const bootstrapEntered = new Promise<void>((resolve) => {
+        markBootstrapEntered = resolve;
       });
+      let releaseBootstrap!: () => void;
+      const bootstrapRelease = new Promise<void>((resolve) => {
+        releaseBootstrap = resolve;
+      });
+      const spy = vi
+        .spyOn(bridgeMod, "bootstrapMCPTools")
+        .mockImplementation(async (...args: any[]) => {
+          markBootstrapEntered();
+          await bootstrapRelease;
+          return (originalBootstrap as any)(...args);
+        });
 
-      const calls = (wireApi.registerTool as any).mock.calls as Array<[any]>;
-      const registeredNames = calls.map(([t]) => t?.name).filter(Boolean);
-      expect(registeredNames).toEqual(
-        expect.arrayContaining([
-          "ctx_execute",
-          "ctx_search",
-          "ctx_index",
-          "ctx_batch_execute",
-          "ctx_fetch_and_index",
-        ]),
-      );
+      try {
+        await registerPiExtension(wireApi, { projectDir: tempDir });
 
-      await wireApi._trigger("session_shutdown");
+        // Hold session_start open while the bridge is in flight. Pi must not
+        // dispatch the first prompt until this promise resolves.
+        const sessionStart = wireApi._trigger(
+          "session_start",
+          {},
+          { session_id: "race-test", project_dir: tempDir },
+        );
+        await bootstrapEntered;
+
+        const preCalls = (wireApi.registerTool as any).mock.calls.length;
+        expect(preCalls).toBe(0);
+
+        releaseBootstrap();
+        await sessionStart;
+
+        const calls = (wireApi.registerTool as any).mock.calls as Array<[any]>;
+        const registeredNames = calls.map(([t]) => t?.name).filter(Boolean);
+        expect(registeredNames).toEqual(
+          expect.arrayContaining([
+            "ctx_execute",
+            "ctx_search",
+            "ctx_index",
+            "ctx_batch_execute",
+            "ctx_fetch_and_index",
+          ]),
+        );
+
+        await wireApi._trigger("session_shutdown");
+      } finally {
+        spy.mockRestore();
+      }
     }, 30_000);
   });
 
@@ -2043,13 +2067,14 @@ describe("Pi MCP bridge (#426)", () => {
 
         const mod = await import("../src/adapters/pi/extension.js");
 
-        // Lazy bootstrap now starts from before_agent_start. Fire shutdown while
-        // that bootstrap promise is still pending, then release it so shutdown's
-        // bounded await can see and terminate the real handle.
-        const agentStart = wireApi._trigger("before_agent_start", {
-          prompt: "race",
-          systemPrompt: "",
-        });
+        // Session-start bootstrap is still pending. Fire shutdown while it is
+        // in flight, then release it so shutdown's bounded await can see and
+        // terminate the real handle.
+        const agentStart = wireApi._trigger(
+          "session_start",
+          {},
+          { session_id: "shutdown-race", project_dir: tempDir },
+        );
         await bootstrapEntered;
         const shutdown = wireApi._trigger("session_shutdown");
         releaseBootstrap();
@@ -2114,10 +2139,11 @@ describe("Pi MCP bridge (#426)", () => {
       try {
         await registerPiExtension(wireApi, { projectDir: tempDir });
 
-        const agentStart = wireApi._trigger("before_agent_start", {
-          prompt: "late-bootstrap-race",
-          systemPrompt: "",
-        });
+        const agentStart = wireApi._trigger(
+          "session_start",
+          {},
+          { session_id: "late-bootstrap-race", project_dir: tempDir },
+        );
         await Promise.resolve();
         expect(spy).toHaveBeenCalledTimes(1);
 

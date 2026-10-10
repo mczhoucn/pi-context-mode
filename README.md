@@ -69,7 +69,7 @@ All sections are optional. Invalid settings fail closed and warn without blockin
 
 **Before:** the Pi adapter assembled a static routing anchor during `before_agent_start` and appended it through Pi's `context` hook as an extra model-visible message. The message explained the tool hierarchy and when to choose `ctx_execute`, `ctx_execute_file`, `ctx_batch_execute`, `ctx_search`, and related tools.
 
-**Now:** the Pi adapter puts stable tool-selection guidance in Pi's native `promptSnippet` / `promptGuidelines` metadata when registering the tools. `before_agent_start` keeps only dynamic session context, such as active memory and resume data, and no longer adds the static routing anchor.
+**Now:** the Pi adapter puts stable tool-selection guidance in Pi's native `promptSnippet` / `promptGuidelines` metadata when registering the tools. The MCP bridge starts and is awaited at `session_start`, so the first model request already has the ctx tools and their metadata; CLI-only commands never start it. `before_agent_start` keeps only dynamic session context, such as active memory and resume data, and no longer adds the static routing anchor.
 
 **Benefits:** the routing guidance stays attached to the relevant tool, repeated prompt text is removed from every turn, and the stable prompt prefix is easier for providers to cache. Dynamic session information remains available without mixing it with static tool instructions.
 

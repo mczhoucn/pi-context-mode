@@ -247,7 +247,7 @@ describe("JetBrainsCopilotAdapter", () => {
     });
 
     it("emits CLI dispatcher form EVEN WHEN pluginRoot is passed (Tier C — workspace-committed)", () => {
-      const fakeAbsRoot = "/Users/test/AppData/Local/fnm_multishells/12345_67890/node_modules/context-mode";
+      const fakeAbsRoot = "/Users/test/AppData/Local/fnm_multishells/12345_67890/node_modules/pi-context-mode";
       const cmd = buildHookCommand(HOOK_TYPES.PRE_TOOL_USE, fakeAbsRoot);
       expect(cmd).toBe("context-mode hook jetbrains-copilot pretooluse");
       expect(cmd).not.toContain("/Users/");

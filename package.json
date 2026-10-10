@@ -1,5 +1,5 @@
 {
-  "name": "context-mode",
+  "name": "pi-context-mode",
   "version": "1.0.169",
   "type": "module",
   "description": "Context-saving MCP extension for Pi Coding Agent with sandboxed code execution, FTS5 knowledge base, and intent-driven search.",
@@ -18,9 +18,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/mksglu/context-mode"
+    "url": "https://github.com/mczhoucn/pi-context-mode"
   },
-  "homepage": "https://github.com/mksglu/context-mode#readme",
+  "homepage": "https://github.com/mczhoucn/pi-context-mode#readme",
   "pi": {
     "extensions": [
       "./build/adapters/pi/host-entry.js"
@@ -34,7 +34,7 @@
       "./build/adapters/openclaw/plugin.js"
     ]
   },
-  "bugs": "https://github.com/mksglu/context-mode/issues",
+  "bugs": "https://github.com/mczhoucn/pi-context-mode/issues",
   "main": "./build/adapters/opencode/plugin.js",
   "exports": {
     ".": "./build/adapters/opencode/plugin.js",
@@ -63,6 +63,7 @@
     "scripts/heal-installed-plugins.mjs",
     "scripts/plugin-cache-integrity.mjs",
     "README.md",
+    "README.zh_CN.md",
     "LICENSE"
   ],
   "scripts": {
@@ -96,6 +97,13 @@
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
     "zod": "^3.25.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

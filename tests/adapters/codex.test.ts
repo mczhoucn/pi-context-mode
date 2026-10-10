@@ -557,11 +557,11 @@ describe("CodexAdapter", () => {
       writeFileSync(hooksPath, JSON.stringify({
         hooks: {
           PreToolUse: [
-            { matcher: "", hooks: [{ type: "command", command: "node /Users/foo/.nvm/versions/node/v20/lib/node_modules/context-mode/hooks/codex/pretooluse.mjs" }] },
+            { matcher: "", hooks: [{ type: "command", command: "node /Users/foo/.nvm/versions/node/v20/lib/node_modules/pi-context-mode/hooks/codex/pretooluse.mjs" }] },
             { matcher: "", hooks: [{ type: "command", command: "context-mode hook codex pretooluse" }] },
           ],
           PostToolUse: [
-            { hooks: [{ type: "command", command: "/opt/homebrew/bin/node /opt/homebrew/lib/node_modules/context-mode/hooks/posttooluse.mjs" }] },
+            { hooks: [{ type: "command", command: "/opt/homebrew/bin/node /opt/homebrew/lib/node_modules/pi-context-mode/hooks/posttooluse.mjs" }] },
             { hooks: [{ type: "command", command: "context-mode hook codex posttooluse" }] },
           ],
         },
@@ -851,7 +851,7 @@ args = ["-y", "context-mode"]
         hooks: {
           PreToolUse: [
             { matcher: "", hooks: [{ type: "command", command: "context-mode hook codex pretooluse" }] },
-            { matcher: "", hooks: [{ type: "command", command: "node /Users/foo/.nvm/versions/node/v20/lib/node_modules/context-mode/hooks/codex/pretooluse.mjs" }] },
+            { matcher: "", hooks: [{ type: "command", command: "node /Users/foo/.nvm/versions/node/v20/lib/node_modules/pi-context-mode/hooks/codex/pretooluse.mjs" }] },
           ],
           PostToolUse: [
             { hooks: [{ type: "command", command: "context-mode hook codex posttooluse" }] },

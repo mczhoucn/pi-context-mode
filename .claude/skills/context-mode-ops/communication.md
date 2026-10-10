@@ -20,7 +20,7 @@ We investigated this and pushed a fix in #{PR_NUMBER}.
 This lands on the `next` branch and will ship in the next release. Once it's out, could you please test it in your setup and confirm it resolves the issue? 🙏
 
 ```
-npm update -g context-mode
+npm update -g pi-context-mode
 # or run directly:
 context-mode upgrade
 ```
@@ -187,7 +187,7 @@ Let me know how you'd like to proceed!
 
 Please update and test:
 ```
-npm update -g context-mode
+npm update -g pi-context-mode
 # or run directly:
 context-mode upgrade
 ```

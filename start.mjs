@@ -235,7 +235,7 @@ if (cacheMatch) {
 //           Claude Code skips disabled plugins, so MCP never starts and
 //           the user has no /ctx-upgrade escape hatch.
 // Logic is shared verbatim with scripts/postinstall.mjs (single source of
-// truth) so users who fix themselves via `npm install -g context-mode`
+// truth) so users who fix themselves via `npm install -g pi-context-mode`
 // follow the exact same code path. Best-effort, never blocks MCP boot.
 try {
   const { healInstalledPlugins, healSettingsEnabledPlugins, healPluginJsonMcpServers, sweepStaleMcpJson } =

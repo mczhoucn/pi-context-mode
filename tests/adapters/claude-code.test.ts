@@ -870,7 +870,7 @@ describe("ClaudeCodeAdapter", () => {
 
       const cases = [
         "/usr/local/bin/context-mode/hooks/pretooluse.mjs",
-        "C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/context-mode/hooks/sessionstart.mjs",
+        "C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/pi-context-mode/hooks/sessionstart.mjs",
         "/path with spaces/and-symbols!@#$%/hooks/posttooluse.mjs",
       ];
       for (const scriptPath of cases) {
@@ -888,7 +888,7 @@ describe("ClaudeCodeAdapter", () => {
       // spaces. buildNodeCommand could NEVER produce this (it always
       // double-quotes both args), so parseNodeCommand MUST refuse it.
       const ambiguous =
-        "node C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/context-mode/hooks/pretooluse.mjs";
+        "node C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/pi-context-mode/hooks/pretooluse.mjs";
       expect(parseNodeCommand(ambiguous)).toBeNull();
     });
 
@@ -917,7 +917,7 @@ describe("ClaudeCodeAdapter", () => {
       // bug). null lets the doctor fall through to direct existsSync
       // (Algo-D1) instead of trusting the regex.
       const ambiguous =
-        "node C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/context-mode/hooks/pretooluse.mjs";
+        "node C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/pi-context-mode/hooks/pretooluse.mjs";
       expect(extractHookScriptPath(ambiguous)).toBeNull();
     });
 
@@ -933,7 +933,7 @@ describe("ClaudeCodeAdapter", () => {
       // Same ambiguous shape — both twin definitions must agree post-D2
       // so doctor + cleanup callers behave identically.
       const ambiguous =
-        "node C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/context-mode/hooks/pretooluse.mjs";
+        "node C:/Users/High Ground Services/AppData/Roaming/npm/node_modules/pi-context-mode/hooks/pretooluse.mjs";
       expect(extractInHooks(ambiguous)).toBeNull();
     });
 

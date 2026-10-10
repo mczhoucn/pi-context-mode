@@ -2968,7 +2968,7 @@ describe("Version outdated warning in trackResponse", () => {
     // Claude Code gets the terminal upgrade command
     expect(serverSrc).toMatch(/claude.code.*context.mode upgrade|context.mode upgrade.*claude.code/i);
     // npm platforms get npm update
-    expect(serverSrc).toContain("npm update -g context-mode");
+    expect(serverSrc).toContain("npm update -g pi-context-mode");
     // OpenClaw gets its own command
     expect(serverSrc).toContain("npm run install:openclaw");
   });

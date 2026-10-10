@@ -15,8 +15,8 @@ The Pi entry point is `build/adapters/pi/host-entry.js`, declared by `package.js
 **Requirements:** Pi Coding Agent and Node.js `>=22.5` (Bun is also supported by the runtime adapter).
 
 ```bash
-npm install -g context-mode
-pi install npm:context-mode
+npm install -g pi-context-mode
+pi install npm:pi-context-mode
 ```
 
 Restart Pi after installation. For a source checkout:

@@ -352,10 +352,10 @@ function defaultPluginRoot(): string {
 
 // Opencode/Kilocode install plugins from npm into a per-package cache folder.
 // Layout (changed silently in late 2024 — see PR #376 / KiloCode#9503):
-//   POSIX  : ~/.cache/<platform>/packages/context-mode@latest/node_modules/context-mode
-//   Windows: %LOCALAPPDATA%\<platform>\packages\context-mode@latest\node_modules\context-mode
+//   POSIX  : ~/.cache/<platform>/packages/pi-context-mode@latest/node_modules/pi-context-mode
+//   Windows: %LOCALAPPDATA%\<platform>\packages\pi-context-mode@latest\node_modules\pi-context-mode
 function cachePluginRoot(platform: string): string {
-  const subPath = ["packages", "context-mode@latest", "node_modules", "context-mode"];
+  const subPath = ["packages", "pi-context-mode@latest", "node_modules", "pi-context-mode"];
   if (process.platform === "win32") {
     const localApp = process.env.LOCALAPPDATA;
     if (localApp) return resolve(localApp, platform, ...subPath);
@@ -744,8 +744,8 @@ async function doctor(): Promise<number> {
             "\n  V8 madvise(MADV_DONTNEED) SIGSEGV in better-sqlite3 (1-4/hour)." +
             "\n  Refs: https://github.com/nodejs/node/issues/62515" +
             "\n        https://github.com/mksglu/context-mode/issues/564" +
-            "\n  Fix:  nvm install 22.5 && nvm use 22.5 && npm install -g context-mode" +
-            "\n  Or:   curl -fsSL https://bun.sh/install | bash && bun add -g context-mode",
+            "\n  Fix:  nvm install 22.5 && nvm use 22.5 && npm install -g pi-context-mode" +
+            "\n  Or:   curl -fsSL https://bun.sh/install | bash && bun add -g pi-context-mode",
           ),
       );
     }
@@ -1302,10 +1302,10 @@ async function upgrade(opts?: { platform?: string }) {
   const localVersion = getLocalVersion();
   const tmpDir = join(tmpdir(), `context-mode-upgrade-${Date.now()}`);
 
-  s.start("Cloning mksglu/context-mode");
+  s.start("Cloning mczhoucn/pi-context-mode");
   try {
     execFileSync(
-      "git", ["clone", "--depth", "1", "https://github.com/mksglu/context-mode.git", tmpDir],
+      "git", ["clone", "--depth", "1", "https://github.com/mczhoucn/pi-context-mode.git", tmpDir],
       { stdio: "pipe", timeout: 30000 },
     );
     s.stop("Downloaded");

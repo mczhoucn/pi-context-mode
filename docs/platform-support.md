@@ -40,22 +40,13 @@ Run diagnostics, upgrades, status reporting, and Insight from the terminal.
 Install both the terminal command and the Pi package:
 
 ```bash
-npm install -g context-mode
-pi install npm:context-mode
+npm install -g pi-context-mode
+pi install npm:pi-context-mode
 ```
 
-Register the MCP server in `~/.pi/agent/mcp.json`, or in `.pi/mcp.json` for one
-project:
-
-```json
-{
-  "mcpServers": {
-    "context-mode": {
-      "command": "context-mode"
-    }
-  }
-}
-```
+The Pi package declares its extension entry in `package.json`, so this Pi
+installation does not need a second MCP server entry in
+`~/.pi/agent/mcp.json` or `.pi/mcp.json`.
 
 Restart Pi after installation.
 

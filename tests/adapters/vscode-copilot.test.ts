@@ -228,7 +228,7 @@ describe("VSCodeCopilotAdapter", () => {
   // works for every install pattern that has a `bin` entry on PATH
   // (npm-global, brew, asdf, nvm, volta, fnm — all wire `npm install -g`
   // through the `bin` field). For users without global install, the
-  // workaround is `npm install -g context-mode` — same as every other
+  // workaround is `npm install -g pi-context-mode` — same as every other
   // adapter that emits CLI-dispatcher commands (cursor, codex).
 
   describe("buildHookCommand portability (Issue #613 Tier C lock)", () => {
@@ -242,7 +242,7 @@ describe("VSCodeCopilotAdapter", () => {
       // trigger the absolute-path branch and bake fnm_multishells paths into
       // .github/hooks/context-mode.json. The fix: pluginRoot is ignored for
       // emit purposes. Every commit'd hook command MUST be portable.
-      const fakeAbsRoot = "/Users/test/AppData/Local/fnm_multishells/12345_67890/node_modules/context-mode";
+      const fakeAbsRoot = "/Users/test/AppData/Local/fnm_multishells/12345_67890/node_modules/pi-context-mode";
       const cmd = buildHookCommand(HOOK_TYPES.PRE_TOOL_USE, fakeAbsRoot);
       expect(cmd).toBe("context-mode hook vscode-copilot pretooluse");
       // Belt-and-braces — explicit anti-patterns the Tier C lock forbids.

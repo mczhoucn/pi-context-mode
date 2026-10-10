@@ -9,7 +9,7 @@
  *
  * Single source of truth shared by:
  *   - `start.mjs` HEAL 3+4 (every MCP boot)
- *   - `scripts/postinstall.mjs` (every `npm install -g context-mode`)
+ *   - `scripts/postinstall.mjs` (every `npm install -g pi-context-mode`)
  *
  * Pure Node.js (built-ins only). Best-effort: never throws, always
  * returns a plain result object so callers can log a one-liner.
@@ -201,7 +201,7 @@ export function healSettingsEnabledPlugins({ settingsPath, pluginKey }) {
 //
 // Single source of truth shared by:
 //   - `start.mjs` HEAL 5b (every MCP boot)
-//   - `scripts/postinstall.mjs` (every `npm install -g context-mode`)
+//   - `scripts/postinstall.mjs` (every `npm install -g pi-context-mode`)
 //   - `src/cli.ts` upgrade() (post-bump)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -305,7 +305,7 @@ export function healPluginJsonMcpServers({ pluginRoot, pluginCacheRoot, pluginKe
 //
 // Single source of truth shared by:
 //   - `start.mjs` HEAL 5b (every MCP boot)
-//   - `scripts/postinstall.mjs` (every `npm install -g context-mode`)
+//   - `scripts/postinstall.mjs` (every `npm install -g pi-context-mode`)
 //   - `src/cli.ts` upgrade() (post-bump)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -506,7 +506,7 @@ export function healClaudeJsonMcpArgs({ dotClaudeJsonPath, pluginCacheParent, ne
 //
 // Single source of truth shared by:
 //   - `start.mjs` HEAL 5c (every MCP boot)
-//   - `scripts/postinstall.mjs` (every `npm install -g context-mode`)
+//   - `scripts/postinstall.mjs` (every `npm install -g pi-context-mode`)
 //   - `src/cli.ts` upgrade() (post-bump)
 //
 // Safety contracts:

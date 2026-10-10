@@ -266,10 +266,10 @@ describe("Pi wire payload — P1: ctx_execute routing matches the Bash recovery 
     const presented = piToolPresentation("ctx_execute", generic(), true);
     const text = presented.description;
     // The four rules the effective Bash replacement requires.
-    expect(text).toMatch(/In Pi, run ALL shell commands here/i);
+    expect(text).toMatch(/In Pi, route ALL shell commands through context-mode/i);
     expect(text).toMatch(/small output, navigation, and filesystem mutations/i);
-    expect(text).toMatch(/ctx_batch_execute for several independent commands/i);
-    expect(text).toMatch(/dependent success-gated commands in ONE chain/i);
+    expect(text).toMatch(/ctx_batch_execute for independent command collection\/search/i);
+    expect(text).toMatch(/ctx_execute here for a single command or dependent chain/i);
     // Bash recovery policy — same contract as the Bash replacement metadata.
     expect(text).toMatch(/Native bash is a recovery channel only/i);
     expect(text).toMatch(/Never automatically retry/i);

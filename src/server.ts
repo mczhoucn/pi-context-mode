@@ -807,7 +807,7 @@ function getUpgradeHint(): string {
   if (name === "Claude Code") return "context-mode upgrade";
   if (name === "OpenClaw") return "npm run install:openclaw";
   if (name === "Pi") return "npm run build";
-  return "npm update -g context-mode";
+  return "npm update -g pi-context-mode";
 }
 
 function semverNewer(a: string, b: string): boolean {
@@ -4332,7 +4332,7 @@ server.registerTool(
     } else {
       // Inline fallback: neither CLI file exists (e.g. marketplace installs).
       // Generate a self-contained node -e script that performs the upgrade.
-      const repoUrl = "https://github.com/mksglu/context-mode.git";
+      const repoUrl = "https://github.com/mczhoucn/pi-context-mode.git";
       // Write inline script to a temp .mjs file — avoids quote-escaping issues
       // across cmd.exe, PowerShell, and bash (node -e '...' breaks on Windows).
       const scriptLines = [

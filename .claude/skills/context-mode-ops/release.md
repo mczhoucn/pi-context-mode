@@ -139,7 +139,7 @@ npm publish
 
 Verify publication:
 ```bash
-npm view context-mode version  # should show new version
+npm view pi-context-mode version  # should show new version
 ```
 
 ### 6. Sync Branches
@@ -201,7 +201,7 @@ Before declaring release complete:
 - [ ] `npm publish` — package on npm registry
 - [ ] `next` branch synced with `main`
 - [ ] Stale remote branches cleaned (user approved)
-- [ ] Verify: `npm view context-mode version` shows new version
+- [ ] Verify: `npm view pi-context-mode version` shows new version
 
 ## Rollback Plan
 
@@ -226,7 +226,7 @@ After successful release:
 1. Comment on all issues fixed in this release:
    ```
    Released in v{VERSION}! Please update and test:
-   npm update -g context-mode
+   npm update -g pi-context-mode
    ```
 
 2. Update Discord if there are noteworthy changes

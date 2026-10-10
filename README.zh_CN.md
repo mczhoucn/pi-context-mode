@@ -15,8 +15,8 @@ Pi 插件入口是 `build/adapters/pi/host-entry.js`，由 `package.json` 的 `p
 **要求：**已安装 Pi Coding Agent，Node.js `>=22.5`；运行时也支持 Bun。
 
 ```bash
-npm install -g context-mode
-pi install npm:context-mode
+npm install -g pi-context-mode
+pi install npm:pi-context-mode
 ```
 
 安装后重启 Pi。源码开发使用：

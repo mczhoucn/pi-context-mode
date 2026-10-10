@@ -575,7 +575,7 @@ describe("OpenClawPlugin", () => {
       );
       const result = promptHook!.handler() as { appendSystemContext?: string };
       expect(result?.appendSystemContext).toContain("<context_mode_skill_like_guidance");
-      expect(result?.appendSystemContext).toContain("Default to context-mode for ALL commands.");
+      expect(result?.appendSystemContext).toContain("Default to context-mode for ALL commands");
       // Section headings are a shared extraction boundary, not just formatting.
       const excerpt = result.appendSystemContext?.match(
         /<context_mode_skill_like_guidance[^>]*>([\s\S]*?)<\/context_mode_skill_like_guidance>/,

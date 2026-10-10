@@ -66,11 +66,11 @@ const pkgRoot = resolve(__dirname, "..");
       "\n" +
       "  Fix: upgrade Node (recommended)\n" +
       "    nvm install 22.5 && nvm use 22.5\n" +
-      "    npm install -g context-mode\n" +
+      "    npm install -g pi-context-mode\n" +
       "\n" +
       "  Or: run under Bun\n" +
       "    curl -fsSL https://bun.sh/install | bash\n" +
-      "    bun add -g context-mode\n" +
+      "    bun add -g pi-context-mode\n" +
       "\n",
     );
     process.exit(1);
@@ -78,7 +78,7 @@ const pkgRoot = resolve(__dirname, "..");
 }
 
 /**
- * True when running as a real `npm install -g context-mode`. We use this
+ * True when running as a real `npm install -g pi-context-mode`. We use this
  * to keep contributors' local `npm install` runs from rewriting their HOME's
  * Claude Code registry (would be very surprising during dev).
  *
@@ -158,7 +158,7 @@ if (isGlobalInstall()) {
   // v1.0.119: Layer 5b (Issue #523). Heal .claude-plugin/plugin.json's
   // mcpServers["context-mode"].args[0] when /ctx-upgrade left a tmpdir-prefixed
   // path baked in. Iterates EVERY installed cache entry's installPath so
-  // already-broken users self-recover the next time `npm install -g context-mode`
+  // already-broken users self-recover the next time `npm install -g pi-context-mode`
   // runs. Best effort, never blocks install.
   try {
     const ipPath = resolve(homedir(), ".claude", "plugins", "installed_plugins.json");
@@ -276,7 +276,7 @@ if (process.platform === "win32" && process.env.npm_config_global === "true") {
     } catch { /* where may fail if not installed yet */ }
 
     for (const shimDir of shimDirs) {
-      const expectedPkgDir = join(shimDir, "node_modules", "context-mode");
+      const expectedPkgDir = join(shimDir, "node_modules", "pi-context-mode");
 
       if (
         resolve(expectedPkgDir).toLowerCase() !== resolve(actualPkgDir).toLowerCase() &&
@@ -344,7 +344,7 @@ try { healBetterSqlite3Binding(pkgRoot); } catch { /* best effort — don't bloc
 // here too closes the gap for the very first hook fire after a fresh install
 // (before any MCP server has run).
 //
-// Guard 1: only run on REAL `npm install -g context-mode`. A contributor's
+// Guard 1: only run on REAL `npm install -g pi-context-mode`. A contributor's
 // `npm install` from a git clone (or CI checkout) must NOT mutate the
 // source-tracked `.claude-plugin/plugin.json` — doing so substitutes the
 // literal `${CLAUDE_PLUGIN_ROOT}` with an absolute path and trips

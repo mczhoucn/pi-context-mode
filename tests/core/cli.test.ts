@@ -251,12 +251,12 @@ describe("Pi-only installation documentation", () => {
   test("README installation guide contains only the Pi integration", () => {
     const readme = readFileSync(resolve(ROOT, "README.md"), "utf8");
     const installStart = readme.indexOf("## Install");
-    const installEnd = readme.indexOf("## Tools", installStart);
+    const installEnd = readme.indexOf("## Pi settings", installStart);
     expect(installStart).toBeGreaterThanOrEqual(0);
     expect(installEnd).toBeGreaterThan(installStart);
 
     const installGuide = readme.slice(installStart, installEnd);
-    expect(installGuide).toContain("<strong>Pi Coding Agent</strong>");
+    expect(installGuide).toContain("Pi Coding Agent");
     expect(installGuide).not.toMatch(OMP_SUPPORT_PATTERN);
     for (const target of NON_PI_INSTALL_TARGETS) {
       expect(installGuide).not.toMatch(platformNamePattern(target));
@@ -1814,7 +1814,7 @@ describe("start.mjs CLI self-heal", () => {
         "../../hooks/heal-partial-install.mjs"
       );
       expect(
-        deriveMarketplaceClonePath("/usr/local/lib/node_modules/context-mode"),
+        deriveMarketplaceClonePath("/usr/local/lib/node_modules/pi-context-mode"),
       ).toBeNull();
       expect(
         deriveMarketplaceClonePath("/home/u/sultan-projects/context-mode"),

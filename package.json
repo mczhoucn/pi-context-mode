@@ -1,6 +1,6 @@
 {
   "name": "pi-context-mode",
-  "version": "1.0.169",
+  "version": "1.0.170",
   "type": "module",
   "description": "Context-saving MCP extension for Pi Coding Agent with sandboxed code execution, FTS5 knowledge base, and intent-driven search.",
   "author": "Mert Koseoğlu",
